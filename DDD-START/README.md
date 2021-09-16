@@ -79,6 +79,116 @@
 
 <details> <summary> 3. 도메인 모델 패턴 </summary>
 
+## 도메인 모델 패턴
+
+### 일반적인 애플리케이션의 아키텍처
+![image](https://user-images.githubusercontent.com/28394879/133555540-2886ce28-8f46-49ab-a204-1d38bce84105.png)
+
+|계층(Layer)|설명|
+|------|---|---|
+|사용자 인터페이스(UI) 또는 표현(Presentation)| 사용자의 요청을 처리하고 사용자에게 정보를 보여줌. 여기서 사용자는 소프트웨어를 사용하는 사람 뿐만 아니라 외부 시스템도 사용자가 될 수 있다. |
+|응용(Application)| 사용자가 요청한 기능을 실행한다. 업무 로직을 직접 구현하지 않으며 도메인 계층을 조합해서 기능을 실행 |
+|도메인| 시스템이 제공할 도메인의 규칙을 구현 |
+|인프라스트럭처(infrastructure)| 데이터베이스나 메시징 시스템과 같은 외부 시스템과의 연동을 처리 |
+
+- 도메인 모델은 아키텍처상의 도메인 계층을 객체 지향 기법으로 구현하는 패턴을 말한다.
+- 도메인 계층은 도메인의 핵심 규칙을 구현한다.
+    - 예) 주문 도메인에서의 도메인 계층
+    - '출고 전에 배송지를 변경할 수 있다'는 규칙
+    - '주문 취소는 배송 전에만 할 수 있다'는 규칙
+- 도메인 규칙을 객체 지향 기법으로 구현하는 패턴이 도메인 모델 패턴이다.
+
+```
+public class Order {
+    private OrderState state;
+    private ShippingInfo shippingInfo;
+
+    public void changeShippingInfo(ShippingInfo newShippingInfo) {
+        if (!state.isShippingChangeable()) {
+            throw new illeagalStateException("can't change shipping in " + state);
+        }
+        this.shippingInfo = newShippingInfo;
+    }
+    public void changeShipped() {
+        // 로직 검사
+        this.state = OrderState.SHIPPED;
+    }
+    ...
+}
+
+
+public enum OrderState {
+    PAYMENT_WAITTING {
+        public boolean isShippingChangeable() {
+            return true;
+        }
+    },
+    PREPARING {
+        public boolean isShippingChangeable() {
+            return true;
+        }
+    },
+    SHIPPED, DELIVERING, DELIVERY_COMPLETED;
+
+    public boolean isShippingChangeable() {
+        return false;
+    }
+}
+```
+
+- 위 코드는 주문 도메인의 일부 기능을 도메인 모델 패턴으로 구현한 것이다.
+- 주문 상태를 표현하는 OrderState는 배송지를 변경할 수 있는지 여부를 검사할 수 있는 isShippingChangeable() 메서드를 제공하고 있다.
+- 주문 대기 중(PAYMENT_WAITTING) 상태와 상품 준비 중(PREPARING) 상태의 isShippingChangeable() 메서즈는 true를 리턴한다.
+- 즉, OrderState는 주문 대기 중이거나 상품 준비 중에는 배송지를 변경할 수 있다는 도메인 규칙을 구현하고 있다.
+- 실제 배송지 정보를 변경하는 Order 클래스의 changeShippingInfo() 메서드는 OrderState의 isShippingChangeable() 메서드를 이용해서 변경 가능 여부를 확인
+한 후 변경 가능한 경우에만 배송지를 변경한다.
+
+
+```
+public class Order {
+    private OrderState state;
+    private ShippingInfo shippingInfo;
+
+    public void changeShippingInfo(ShippingInfo newShippingInfo) {
+        if (!state.isShippingChangeable()) {
+            throw new illeagalStateException("can't change shipping in " + state);
+        }
+        this.shippingInfo = newShippingInfo;
+    }
+    public void changeShipped() {
+        return state == OrderState.PAYMENT_WAITTING ||
+            state == OrderState.PREPARING;
+    }
+    ...
+}
+
+
+public enum OrderState {
+    PAYMENT_WAITTING, PREPARING, SHIPPED, DELIVERING, DELIVERY_COMPLETED;
+}
+```
+
+- Order 클래스에서 changeShipped를 판단하도록 수정한 코드
+- 배송지 변경이 가능한지 여부를 판단할 규칙이 주문 상태와 다른 정보를 함께 사용한다면 배송지 변경 가능 여부 판단을 OrderState만으로 할 수 없으므로
+로직 구현을 Order에서 해야 할 것이다.
+- 배송지 변경 가능 여부를 판단하는 기능이 Order에 있든, OrderState에 있든 중요한 점은 주문과 관련된 중요 업무 규칙을 주문 도메인 모델인 Order, OrderState에서 구현한다는 점이다.
+- 핵심 규칙을 구현한 코드는 도메인 모델에만 위치하기 떄문에 규칙이 바뀌거나 규칙을 확장해야 할 때 다른 코드에 영향을 덜 주고 변경 내역을 모델에 반영할 수 있다.
+
+> 노트
+> '도메인 모델' 이란 용어는 도메인 자체를 표현하는 개념적인 모델을 의미하지만, 도메인 계층을 구현할 때
+> 사용하는 객체 모델을 언급할 때에도 '도메인 모델'이란 용어를 사용한다.
+> 여기에서도 도메인 계층의 객체 모델을 표현할 때 도메인 모델이라고 표현하고 있다.
+
+### 개념 모델과 구현 모델
+- 개념모델: 순수하게 문제를 분석한 결과물
+- 개념모델: 데이터베이스, 트랜잭션 처리, 성능, 구현 기술과 같은 것들을 고려하고 있지 않기 떄문에 실제 코드를 작성할 때 개념 모델을 있는 그대로 사용할 수 없다.
+- 그래서 개념 모델을 구현 가능한 형태의 모델로 전환하는 과정을 거치게 된다.
+- 개념 모델을 만들 때 처음부터 완벽하게 도메인을 표현하는 모델을 만드는 시도를 할 수 있지만 실제로는 불가능에 가깝다.
+- 프로젝트 초기에 완벽한 도메인 모델을 만들더라도 결국 도메인에 대한 새로운 지식이 쌓이면서 모델을 보완하거나 수정하는 일이 발생한다.
+- 처음부터 완벽한 개념 모델을 만들기보다는 전반적인 개요를 알 수 있는 수준으로 개념 모델을 작성해야 한다.
+- 프로젝트 초기에는 개요 수준의 개념 모델로 도메인에 대한 전체 윤곽을 이해하는 데 집중하고,
+구현하는 과정에서 개념 모델을 구현 모델로 점진적으로 발전시켜 나가야 한다.
+
 </details>
 
 <details> <summary> 4. 도메인 모델 도출 </summary>
