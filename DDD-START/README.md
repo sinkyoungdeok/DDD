@@ -118,7 +118,7 @@ public class Order {
 
 
 public enum OrderState {
-    PAYMENT_WAITTING {
+    PAYMENT_WAITING {
         public boolean isShippingChangeable() {
             return true;
         }
@@ -138,7 +138,7 @@ public enum OrderState {
 
 - 위 코드는 주문 도메인의 일부 기능을 도메인 모델 패턴으로 구현한 것이다.
 - 주문 상태를 표현하는 OrderState는 배송지를 변경할 수 있는지 여부를 검사할 수 있는 isShippingChangeable() 메서드를 제공하고 있다.
-- 주문 대기 중(PAYMENT_WAITTING) 상태와 상품 준비 중(PREPARING) 상태의 isShippingChangeable() 메서즈는 true를 리턴한다.
+- 주문 대기 중(PAYMENT_WAITING) 상태와 상품 준비 중(PREPARING) 상태의 isShippingChangeable() 메서즈는 true를 리턴한다.
 - 즉, OrderState는 주문 대기 중이거나 상품 준비 중에는 배송지를 변경할 수 있다는 도메인 규칙을 구현하고 있다.
 - 실제 배송지 정보를 변경하는 Order 클래스의 changeShippingInfo() 메서드는 OrderState의 isShippingChangeable() 메서드를 이용해서 변경 가능 여부를 확인
 한 후 변경 가능한 경우에만 배송지를 변경한다.
@@ -156,7 +156,7 @@ public class Order {
         this.shippingInfo = newShippingInfo;
     }
     public void changeShipped() {
-        return state == OrderState.PAYMENT_WAITTING ||
+        return state == OrderState.PAYMENT_WAITING ||
             state == OrderState.PREPARING;
     }
     ...
@@ -164,7 +164,7 @@ public class Order {
 
 
 public enum OrderState {
-    PAYMENT_WAITTING, PREPARING, SHIPPED, DELIVERING, DELIVERY_COMPLETED;
+    PAYMENT_WAITING, PREPARING, SHIPPED, DELIVERING, DELIVERY_COMPLETED;
 }
 ```
 
@@ -192,6 +192,207 @@ public enum OrderState {
 </details>
 
 <details> <summary> 4. 도메인 모델 도출 </summary>
+
+## 도메인 모델 도출
+
+- 도메인을 모델링 할때 기본이 되는 작업은 모델을 구성하는 핵심 구성요소, 규칙, 기능을 찾는 것이다.
+- 이 과정은 요구사항에서 출발한다.
+
+### 주문 도메인 요구사항
+- 최소 한 종류 이상의 상품을 주문해야 한다.
+- 한 상품을 한 개 이상 주문할 수 있다.
+- 총 주문 금액은 각 상품의 구매 가격 합을 모두 더한 금액이다.
+- 각 상품의 구매 가격 합은 상품 가격에 구매 개수를 곱한 값이다.
+- 주문할 때 배송지 정보를 반드시 지정해야 한다.
+- 배송지 정보는 받는 사람 이름, 전화번호, 주소로 구성된다.
+- 출고를 하면 배송지 정볼르 변경 할 수 없다.
+- 출고 전에 주문을 취소할 수 있다.
+- 고객이 결재를 완료하기 전에는 상품을 준비하지 않는다.
+
+### 주문 도메인 요구사항 - 분석
+- 주문
+    - '출고상태로 변경하기'
+    - '배송지 정보 변경하기'
+    - '주문 취소하기'
+    - '결제완료로 변경하기'
+
+### 주문 도메인 요구사항 - 코드
+```
+public class Order {
+    public void changeShipped() {...}
+    public void changeShippingInfo(ShippingInfo newShipping) { ... }
+    public void cancel() { ... }
+    public void completePayment() { ... }
+
+}
+```
+
+### 주문 도메인 요구사항1
+- 한 상품을 한 개 이상 주문할 수 있다.
+- 각 상품의 구매 가격 합은 상품 가격에 구매 개수를 곱한 값이다.
+
+### 주문 도메인 요구사항1 - 분석
+- 주문 항목을 표현하는 OrderLine은 적어도 주문할 상품, 상품의 가격, 구매 개수를 포함 해야 한다.
+- 각 구매 항목의 구매 가격도 제공 해야 한다.
+
+### 주문 도메인 요구사항1 - 코드
+```
+public class OrderLine {
+    private Product product;
+    private int price;
+    private int quantity;
+    private int amounts;
+
+    public OrderLine(Product product, int price, int quantity) {
+        this.product = product;
+        this.price = price;
+        this.quantity = quantity;
+        this.amounts = calculateAmounts();
+    }
+
+    private int calculateAmounts() {
+        return price * quantity;
+    }
+
+    public int getAmounts() { ... }
+    ...
+}
+```
+- orderLine은 한 상품(product 필드)을 얼마에(price 필드), 몇 개 살지(count 필드)를 필드에 담고 있고
+calculateAmounts 메서드로 구매 가격을 구하는 로직을 구현 하고 있다.
+
+### 주문 도메인 요구사항2
+- 최소 한 종류 이상의 상품을 주문해야 한다.
+- 총 주문 금액은 각 상품의 구매 가격 합을 모두 더한 금액이다.
+
+### 주문 도메인 요구사항2 - 분석
+- 한 종류 이상의 상품을 주문할 수 있으므로 Order는 최소 한 개 이상의 OrderLine을 포함 해야 한다.
+- OrderLine으로 부터 총 주문 금액을 구할 수 있다.
+
+### 주문 도메인 요구사항2 - 코드
+```
+public class Order {
+    private List<OrderLine> orderLines;
+    private int totalAmounts;
+
+    public Order(List<OrderLine> orderLines) {
+        setOrderLines(orderLines);
+    }
+
+    private void setOrderLines(List<OrderLine> orderLines) {
+        verifyAtLeastOneOrMoreOrderLines(orderLines);
+        this.orderLines = orderLines;
+        calculateTotalAmounts();
+    }
+
+    private void verifyAtLeastOneOrMoreOrderLines(List<OrderLine> orderLines) {
+        if (orderLines == null || orderLines.isEmpty()) {
+            throw new illegalArgumentException("no OrderLine");
+        }
+    }
+
+    private void calculateTotalAmounts() {
+        this.totalAmounts = new Money(orderLines.stream()
+                .mapToInt(x -> x.getAmounts().getValue()).sum();
+    }
+
+    ... // 다른 메서드
+}
+```
+- Order는 한 개 이상의 OrderLine을 가질 수 있으므로 Order를 생성할 때 OrderLine 목록을 List로 전달한다.
+- 생성자에서 호출하는 setOrderLines() 메서드는 요구사항에 정의한 제약 조건을 검사한다.
+- 요구사항에 따르면 최소 한 종류 이상의 상품을 주문해야 하므로 setOrderLines() 메서드는 verifyAtLeastOneOrMoreOrderLines() 메서드를 이용해서
+OrderLine이 한 개 이상 존재하는지 검사한다.
+- calculateTotalAmounts() 메서드를 이용해서 총 주문 금액을 계산한다.
+
+```
+public class ShippingInfo {
+    private String receiverName;
+    private String receiverPhoneNumber;
+    private String shippingAddress1;
+    private String shippingAddress2;
+    private String shippingZipcode;
+
+    ... 생성자, getter
+}
+```
+
+### 주문 도메인 요구사항3
+- '주문할 때 배송지 정보를 반드시 지정해야 한다'
+
+### 주문 도메인 요구사항3 - 분석
+- Order를 생성할 때 OrderLine의 목록뿐만 아니라 ShippingInfo도 함께 전달해야 한다.
+
+### 주문 도메인 요구사항3 - 코드
+```
+public class Order {
+    private List<OrderLine> orderLines;
+    private int totalAmounts;
+    private ShippingInfo shippingInfo;
+
+    public Order(List<OrderLine> orderLines, ShippingInfo shippingInfo ) {
+        setOrderLines(orderLines);
+        setShippingInfo(shippingInfo);
+    }
+
+    private setShippingInfo(ShippingInfo shippingInfo) {
+        if (shippingInfo == null)
+            throw new illegalArgumentException("no ShippingInfo");
+        this.shippingInfo = shippingInfo;
+    }
+    ...
+}
+```
+- 생성자에서 호출하는 setShippingInfo() 메서드는 ShippingInfo가 null이면 익셉션이 발생하는데, 이렇게 함으로써
+'배송지 정보 필수'라는 도메인 규칙을 구현
+
+### 주문 도메인 요구사항4
+- 출고를 하면 배송지 정보를 변경할 수 없다.
+- 출고 전에 주문을 취소할 수 있다.
+- 고객이 결제를 완료하기 전에는 상품을 준비하지 않는다.
+
+### 주문 도메인 요구사항4 - 분석
+- 출고 상태에 따라 배송지 정보 변경 기능과 주문 취소 기능이 제약을 받는다.
+- 주문은 적어도 출고 상태를 표현할 수 있어야 한다.
+- 결제 완료 전을 의미하는 상태와 결제 완료 내지 상품 준비 중이라는 상태가 필요하다.
+
+### 주문 도메인 요구사항4 - 코드
+```
+public enum OrderState {
+    PAYMENT_WAITING, PREPARING, SHIPPED, DELIVERING, DELIVERY_COMPLETED, CANCELED;
+}
+```
+
+```
+public class Order {
+    private OrderState state;
+
+    public void changeShippingInfo(ShippingInfo newShippingInfo) {
+        verifyNotYetShipped();
+        setShippingInfo(newShippingInfo)
+    }
+    public void cancel() {
+        verifyNotYetShipped();
+        this.state = OrderState.CANCELED;
+    }
+    private void verifyNotYetShipped() {
+        if (state != OrderState.PAYMENT_WAITING && state != OrderState.PREPARING)
+            throw new illegalStateException("already shipped");
+    }
+    ...
+}
+```
+- 배송지 변경이나 주문 취소 기능은 출고 전에만 가능하다는 제약 규칙이 있으므로 changeShippingInfo()와 cancel()
+은 verifyNotYetShipped()메서드를 먼저 실행하게 했다.
+
+> 노트
+> 앞서 도메인 모델 패턴을 정리할 때에는 isShippingChangeable이라는 이름으로 제약 조건을 검사했는데 지금은
+> verifyNotYetShipped라는 이름으로 변경했다. 이름을 바꾼 이유는 그 사이에 도메인을 더 잘 알게 되었기 때문이다.
+> 최초에는 배송지 정보 변경에 대한 제약 조건만 파악했기 때문에 '배송지 정보 변경 가능 여부 확인'을 의미하는 isShippingChangeable라는
+> 이름을 사용했다. 그런데, 요구사항을 분석하면서 배송지 정보 변경과 주문 취소가 둘다 '출고 전에 가능'하다는 제약 조건을
+> 알게 되었고 이를 반영하기 위해 메서드 이름을 verifyNotYetShipped로 변경했다.
+
+
 
 </details>
 
