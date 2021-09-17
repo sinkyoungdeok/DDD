@@ -776,3 +776,29 @@ public class Address {
     - 도메인 용어에 알맞은 단어를 찾는 시간을 아까워 하면 안된다. 
 
 </details>
+
+# [2.아키텍처 개요](./2.아키텍처-개요)
+
+<details> <summary> 1. 네 개의 영역 </summary>
+
+</details>
+
+<details> <summary> 2. 계층 구조 아키텍처 </summary>
+
+</details>
+
+<details> <summary> 3. DIP </summary>
+
+</details>
+
+<details> <summary> 4. 도메인 영역의 주요 구성요소 </summary>
+
+</details>
+
+<details> <summary> 5. 요청 처리 흐름 </summary>
+
+</details>
+
+<details> <summary> 6. 모듈 구성 </summary>
+
+</details>
