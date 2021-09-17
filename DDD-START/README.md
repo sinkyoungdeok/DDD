@@ -437,14 +437,293 @@ public class Order {
     - MySQL을 사용한다면 자동 증가 칼럼(auto_increament 칼럼)을 이용해서 일련번호 식별자를 생성한다.
     - 자동 증가 칼럼은 DB테이블에 데이터를 삽입해야 비로소 값을 알 수 있기 떄문에 테이블에 데이터를 추가하기 전에는 식별자를 알 수 없다. (엔티티 객체를 생성 할 때 식별자를 전달할 수 없다)
   - 식별자를 먼저 만들고 엔티티 객체를 생성할 떄 식별자를 전달 
-    ```
+    ```java
         //엔티티를 생성하기 전에 식별자 생성
         String orderNumber = orderRepository.generate();
 
         Order order = new Order(orderNumber, ...);
         orderRepository.save(order);
+    ```
+
+### 밸류 타입
+- ShippingInfo 클래스는 받는 사람과 주소에 대한 데이터를 갖고 있다.
+  ```java
+    public class ShippingInfo {
+        private String receiverName; // 받는사람
+        private String receiverPhoneNumber; // 받는사람
+
+        private String shippingAddress1; // 주소
+        private String shippingAddress2; // 주소
+        private String shippingZipcode; //주소
+        
+        // ... 생성자, getter
+    } 
+  ```
+    - ShippingInfo 클래스의 receiverName 필드와 receiverPhoneNumber 필드는 서로 다른 두 데이터를 담고 있지만 두 필드는 개념적으로 받는 사람을 의미한다. 
+    - 즉, 두 필드는 실제로 한 개의 개념을 표현하고 있다.
+    - 비슷하게 shippingAddress1 필드, shippingAddress2, shippingZipcode 필드는 주소라는 하나의 개념을 표현한다.
+- 밸류 타입을 개념적으로 완전한 하나르 표현할 때 사용한다.
+- 예) 받는 사람을 위한 밸류 타입인 Receiver
+  ```java
+
+    public class Receiver {
+        private String name;
+        private String phoneNumber;
+
+        public Receiver(String name, String phoneNumber) {
+            this.name = name;
+            this.phoneNumber = phoneNumber;
+        }
+
+        public String getName() {
+            return name;
+        }
+        
+        public String getPhoneNumber() {
+            return phoneNumber;
+        }
+    }
+  ```
+    - Receiver는 '받는 사람' 이라는 도메인 개념을 표현한다.
+    - 앞서 ShippingInfo의 receiverName 필드와 receiverPhoneNumber 필드가 필드 이름을 통해서 받는 사람을 위한 데이터라는 것을 유추한다면, Receiver는 그 자체로 받는 사람을 뜻한다.
+    - 밸류 타입을 사용함으로써 개념적으로 완전한 하나를 잘 표현할 수 있다.
+- 예) 주소르 위한 밸류 타입인 Address
+```java
+public class Address {
+    private String address1;
+    private String address2;
+    private String zipcode;
+
+    public Address(String address1, String address2, String zipcode) {
+        this.address1 = address1;
+        this.address2 = address2;
+        this.zipcode = zipcode;
+    }
+}
+```
+- 밸류 타입을 이용한 ShippingInfo 클래스 
+  ```java
+  public class ShippingInfo {
+      private Receiver receiver;
+      private Address address;
+
+      //... 생성자, get 메서드
+  }
+  ``` 
+    - 배송정보가 받는 사람과 주소로 구성된다는 것을 쉽게 알 수 있다.
+- 밸류 타입이 꼭 두개 이상의 데이터를 가질 필요는 없다.
+- 의미를 명확하게 표현하기 위해 밸류 타입을 사용하는 경우도 있다.
+  - 예) OrderLine
+    ```java
+    public class OrderLine {
+        private Product product;
+        private int price;
+        private int quantity;
+        private int amounts;
+        //...
+    }
     ``` 
-- 
+    - OrderLine의 price와 amounts는 int 타입의 숫자를 사용하고 있지만 이들이 의미하는 값은 '돈'이다.
+    - 따라서, '돈'을 의미하는 Money 타입을 만들어 사용하면 코드를 이해하는데 도움이 된다.
+  - 예) OrderLine의 price를 위한 Money
+    ```java
+    public class Money {
+        private int value;
+
+        public Money(int value) {
+            this.money = money;
+        }
+        
+        public int getValue() {
+            return this.value;
+        }
+    }
+    ``` 
+  - 예) Money를 이용한 OrderLine
+    ```java
+    public class OrderLine {
+        private Product product;
+        private Money price;
+        private int quantity;
+        private Money amounts;
+    }
+    ``` 
+- 밸류 타입을 사용할 때의 또 다른 장점은 밸류 타입을 위한 기능을 추가 할 수 있다.
+  - 예) Money타입은 돈 계산을 위한 기능을 추가 할 수 있다.
+    ```java
+    public class Money {
+        private int value;
+
+        //... 생성자, getValue()
+
+        public Money add(Money money) {
+            return new Money(this.value + money.value);
+        }
+
+        public Money multiply(int multiplier) {
+            return new Money(value * multiplier);
+        }
+    }
+    ``` 
+    - Money를 사요하는 코드는 이제 '정수 타입 연산'이 아니라 '돈 계산' 이라는 의미로 코드를 작성할 수 있다.
+- 밸류 객체의 데이터를 변경할 때는 기존 데이터를 변경하기보다는 변경한 데이터를 갖는 새로운 밸류 객체를 생성하는 방식을 선호한다.
+  - 예) Money클래스의 add() 메서드
+    ```java
+    public class Money {
+        private int value;
+
+        public Money add(Money money) {
+            return new Money(this.value + money.value);
+        }
+
+        // value를 변경할 수 잇는 메서드 없음
+    }
+    ```
+- Money처럼 데이터 변경 기능을 제공하지 않는 타입을 불변(immutable)이라고 표현한다.
+- 밸류 타입을 불변으로 구현하는 이유는 여러가지가 있지만 가장 중요한 이유는 안전한 코드를 작성할 수 있다는 것이다.
+  - 예) OrderLine을 생성하려면 다음 코드 처럼 Money객체를 전달해야 한다.
+    ```java
+    Money price = ...;
+    OrderLine line = new OrderLine(product, price, quantity);
+    // 만약 price.setValue(0)로 값을 변경할 수 있다면?
+    ``` 
+  - 예) Money가 setValue()와 같은 메서드를 제공해서 값을 변경할 수 있다면? (하면안된다)
+    ```java
+    Money price = new Money(1000);
+    OrderLine line = new OrderLine(product, price, 2); // -> [price=1000, quantity=2,amounts=2000]
+    price.setValue(2000); // -> [price=2000, quantity=2, amounts=2000]
+    ``` 
+        - 참조 투명성과 관련된 문제가 생긴다.
+  - 이런 문제가 발생하지 않도록 하려면 OrderLine생성자는 다음과 같이 새로운 Money 객체를 생성하도록 코드를 작성해야 한다.
+    ```java
+    public class OrderLine {
+        //...
+        private Money price;
+        
+        public OrderLine(Product product, Money price, int quantity) {
+            this.product = product;
+            // Money가 불변 객체가 아니라면,
+            // price 파라미터가 변경될 때 발생하는 문제를 방지하기 위해
+            // 데이터를 복사한 새로운 객체를 생성해야 한다.
+            this.price = new Money(price.getValue());
+            this.quantity = quantity;
+            this.amounts = calculateAmounts();
+        }
+    }
+    ``` 
+    - Money가 불변이면 이런 코드를 작성할 필요가 없다.
+- 엔티티 타입의 두 객체가 같은지 비교할 때 주로 식발져를 사용한다면 두 밸류 객체가 같은지 비교할 떄는 모든 속성이 같은지 비교해야 한다.
+  ```java
+  public class Receiver {
+      private String name;
+      private String phoneNumber;
+      
+      public boolean equals(Object other) {
+          if(other == null) return false;
+          if(this == other) return true;
+          if(! (other instanceof Receiver) ) return false;
+          Receiver that = (Receiver)other;
+          return this.name.equals(that.name) && 
+                this.phoneNumber.equals(this.phoneNumber);
+      }
+  }
+  ``` 
+
+
+### 엔티티 식별자 밸류 타입
+- 엔티티 식별자의 실제 데이터는 String과 같은 문자열로 구성된 경우가 많다. (신용카드 번호 16자리 문자열, 이메일 주소 문자열 등)
+- Money가 단순 숫자가 아닌 도메인의 '돈'을 의미하는 것처럼 이런 식별자는 단순한 문자열이 아니라 도메인에서 특별한 의미를 지니는 경우가 많기 떄문에 식별자를 위한 밸류 타입을 사용해서 의미가 잘 드러나도록 할 수 있다.
+  - 예) 주문번호를 표현하기 위해 Order의 식별자 타입을 String대신 OrderNo 밸류타입을 사용
+    ```java
+    public class Order {
+        // OrderNo 타입 자체로 id가 주문번호임을 알 수 있다.
+        private OrderNo id;
+
+        //...
+
+        public OrderNo getId() {
+            return id;
+        }
+    }
+    ``` 
+  - OrderNo 대신에 String 타입을 사용한다면 'id' 라는 이름만으로 해당 필드가 주문번호 인지 여부를 알 수 없다.
+  - 필드의 의미가 드러나도록 하려면 'id' 라는 필드 이름 대신 'orderNo' 라는 필드 이름을 사용해야 한다.
+  - 반면에, 식별자를 위해 OrderNo 타입을 만들면 타입 자체로 주문번호라는 것을 알 수 있으므로 필드 이름이 'id' 여도 실제 의미를 찾는 것은 어렵지 않다.
+
+### 도메인 모델에 set 메서드 넣지 않기
+- 도메인 모델에 get/set 메서드를 무조건 추가하는 것은 좋지 않은 버릇이다. 
+- 특히 set메서드는 모데인의 핵심 개념이나 의도를 코드에서 사라지게 한다.
+  - 예) Order의 메서드를 set메서드로 변경
+    ```java
+    public class Order {
+        //...
+        public void setShippingInfo(ShippingInfo newShipping) {..}
+        public void setOrderState(OrderState state) {..}
+    }
+    ```  
+    - 앞서 changeShippingInfo()가 배송지 정보를 새로 변경한다는 의미를 가졌다면 setShippingInfo()메서드는 단순히 배송지 값을 설정한다는 것을 뜻한다.
+    - completePayment()는 결제를 완료했다는 의미를 갖는 반면에 setOrderState()는 단순히 주문상태 값을 설정한다는 것을 뜻한다.
+    - 구현할 때에도 completePayment()는 결제 완료와 관련된 처리 코드를 함꼐 구현하기 떄문에 결제 완료와 관련된 도메인 지식을 코드로 구현하는 것이 자연스럽다.
+    - setOrderState()는 단순히 상태 값만 변경할지 아니면 상태 값에 따른 다른 처리를 위한 코드를 함께 구현할지 애매하다.
+    - 습관 적으로 코드를 작성하는 경우라면 필드 값만 변경하고 끝나는 경우가 많기 떄문에 상태 변경과 관련된 도메인 지식이 코드에서 사라지게 된다.
+- set 메서드의 또 다른 문제는 도메인 객체를 생성할 때 완전한 상태가 아닐 수도 있다는 것이다.
+  - 예) set메서드의 문제점
+    ```java
+    // set 메서드로 데이터를 전달하도록 구현하면
+    // 처음 Order를 생성하는 시점에 order는 완전하지 않다.
+    Order order = new Order();
+
+    // set 메서드로 필요한 모든 값을 전달해야 함
+    order.setOrdrLine(lines);
+    order.setShippingInfo(shippingInfo);
+
+    // 주문자(Orderer)를 설정하지 않은 상태에서 주문 완료 처리
+    order.setState(OrderState.PREPARING);
+    ``` 
+    - 위 코드는 주문자를 설정하는 것을 누락하고 있다.
+    - 주문자 정보를 담고 있는 필드인 orderer가 null인 상황에서 order.setState() 메서드로 상품 준비 중 상태로 바꾸는 것이다.
+    - orderer가 정상인지 확인하기 위해 orderer가 null인지 검사하는 코드를 setState() 메서드에 위치하는 것도 맞지 않다.
+- 도메인 객체가 불완전한 상태로 사용되는 것을 막으려면 생성 시점에 필요한 것을 전달해 주어야 한다. 즉, 생성자를 통해 필요한 데이터를 모두 받아야 한다.
+  ```java
+  Order order = new Order(orderer, lines, shippingInfo, OrderState.PREPARING);
+  ``` 
+  - 생성자로 필요한 것을 모두 받으므로 생성자를 호출하는 시점에 필요한 데이터가 올바른지 검사할 수 있다.
+  ```java
+  public class Order {
+      public Order(Orderer orderer, List<OrderLine> orderLines, 
+            ShippingInfo shippingInfo, OrderState state) {
+                setOrderer(orderer);
+                setOrderLines(orderLines);
+                // ... 다른 값 설정
+            }
+      private void setOrderer(Orderer orderer) {
+          if (orderer == null) throw new illegalArgumentException("no orderer");
+          this.orderer = orderer;
+      }  
+
+      private void setOrderLines(List<OrderLine> orderLines) {
+          verifyAtLeastOneOrMoreOrderLines(orderlines);
+          this.orderLines = orderLines;
+          calculateTotalAmounts();
+      }
+      
+      private void verifyAtLeastOneOrMoreOrderLines(List<OrderLine> orderLines) {
+          if (orderLines ==null || orderLines.isEmpty()){
+              throw new illegalArgumentException("no OrderLine");
+          }
+      }
+
+      private void calculateTotalAmounts() {
+          this.totalAmounts = orderLines.stream().mapToInt(x -> x.getAmounts()).sum();
+      }
+  }
+
+  ``` 
+    - 이 코드의 set메서드는 앞서 set 메서드와 중요한 차이점이 있는데 접근 범위가 private라는점이다.
+    - 이 코드에서 set메서드는 클래스 내부에서 데이터를 변경할 목적으로 사용된다.
+    - private이기 떄문에 외부에서 데이터를 변경할 목적으로 set 메서드를 사용할 수 없다.
+    - 불변 밸류 타입을 사용하면 자연스럽게 밸류 타입에는 set 메서드를 구현하지 않는다.
+    - set 메서드를 구현해야 할 특별한 이유가 없다면 불변 타입의 장점을 살릴 수 있도록 밸류 타입은 불변으로 구현한다.
 
 </details>
 
