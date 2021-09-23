@@ -781,6 +781,63 @@ public class Address {
 
 <details> <summary> 1. 네 개의 영역 </summary>
 
+### 네 개의 영역
+- 아키텍처를 설계할 때 출현하는 전형적인 영역
+  - '표현'
+  - '응용'
+  - '도메인'
+  - '인프라스트럭처'
+
+### 표현 영역
+- 표현 영역 또는 UI 영역
+- 사용자의 요청을 받아 응용 영역에 전달하고 응용 영역의 처리 결과를 다시 사용자에게 보여주는 역할
+- 웹 애플리케이션을 개발할 때 많이 사용하는 스프링 MVC 프레임워크가 표현영역을 위한 기술에 해당 
+- 웹 애플리케이션에서 표현 영역의 사용자는 웹 브라우저를 사용하는 사람이나, REST API를 호출하는 외부 시스템일 수 있다. 
+![image](https://user-images.githubusercontent.com/28394879/134446261-7e0e79d6-73bb-4e9b-a72f-9dd7875e668b.png)
+- 웹 애플리케이션에서 표현 영역은 HTTP 요청을 응용 영역이 필요로 하는 형식으로 변환해서 응용 영역에 전달하고, 응용 영역의 응답을 HTTP 응답으로 변환해서 전송한다.
+- 예) 표현영역은 웹 브라우저가 HTTP 요청 파라미터로 전송한 데이터를 응용 서비스가 요구하는 형식의 객체 타입으로 변환해서 전달하고, 응용 서비스가 리턴한 결과를 JSON 형식으로 변환해서 HTTP 응답으로 웹 브라우저에 전송한다. 
+
+### 응용 영역
+- 표현 영역을 통해 사용자의 요청을 전달 받음
+- 시스템이 사용자에게 제공해야 할 기능을 구현 
+  - 예) '주문등록', '주문취소', '상품상세조회'
+- 기능을 구현하기 위해 도메인 영역의 도메인 모델을 사용
+  - 예) 주문 취소 기능을 제공하는 응용 서비스 
+    ```java
+    public class CancelOrderService {
+
+        @Transactional
+        public void cancelOrder(String orderId) {
+            Order order = findOrderById(orderId);
+            if (order == null) throw new OrderNotFoundException(orderId);
+            order.cancel();
+        }
+        // ...
+    }
+    ```
+  - 응용 서비스는 로직을 직접 수행하기보다는 도메인 모델에 로직 수행을 위임 
+  - 위 코드도 주문 취소 로직을 직접 구현하지 않고 Order객체에 취소 처리를 위임 하고 있다. 
+![image](https://user-images.githubusercontent.com/28394879/134448391-6ece8aaf-41fb-49f6-845e-87db339824f1.png)
+
+### 도메인 영역
+- 도메인 모델을 구현 
+- Order, OrderLine, ShippingInfo와 같은 도메인 모델이 이영역에 위치한다. 
+- 도메인의 핵심 로직을 구현
+  - 예) 주문 도메인의 경우 
+  - '배송지 변경'
+  - '결제 완료'
+  - '주문 총액 계산'
+
+### 인프라스트럭처 영역
+- 구현 기술에 대한 것을 다룸
+- RDBMS 연동 처리
+- 메시징 큐에 메시지를 전송하거나 수신하는 기능을 구현
+- 몽고DB나 HBase를 사용해서 데이터베이스 연동을 처리 
+- 예) SMTP를 이용한 메일 발송 기능을 구현, HTTP 클라이언트를 이용해서 REST API를 호출
+- 논리적인 개념을 표현하기보다는 실제 구현을 다룸
+- 
+
+
 </details>
 
 <details> <summary> 2. 계층 구조 아키텍처 </summary>
