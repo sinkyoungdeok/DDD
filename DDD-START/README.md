@@ -940,6 +940,210 @@ public class Address {
 
 <details> <summary> 3. DIP </summary>
 
+### DIP
+![image](https://user-images.githubusercontent.com/28394879/134463969-c5c2ac6b-0e5f-4351-846c-7aa64c390442.png)
+- 가격 할인 계싼을 하려면 왼쪽과 같이 고객 정보를 구해야 하고, 구한 고객 정보와 주문 정보를 이용해서 룰을 실행해야 한다. 
+- 여기서 CalculateDiscountService는 고수준 모듈이다.
+
+### 고수준 모듈 
+- 고수준 모듈: 의미 있는 단일 기능을 제공하는 모듈
+  - 예) CalculateDiscountService는 '가격 할인 계산' 이라는 기능을 구현
+- 고수준 모듈의 기능을 구현하려면 여러 하위 기능이 필요하다.
+  - 예) 가격 할인 계산 기능을 구현하려면 고객 정보를 구해야하고 룰을 실행해야하는데 이 두 기능이 하위 기능이다.
+
+### 저수준 모듈 
+- 저수준 모듈: 하위 기능을 실제로 구현한 것
+  - 예) JPA를 이용해서 고객 정보를 읽어오는 모듈과 Drools로 룰을 실행하는 모듈이 저수준 모듈
+- 고수준 모듈이 제대로 동작하려면 저수준 모듈을 사용해야 한다.
+- 고수준 모듈이 저수준 모듈을 사용하면 앞서 계층 구조 아키텍처에서 언급했던 두가지 문제(구현 변경과 테스트가 어려움)가 발생한다.
+
+### DIP
+- 저수준 모듈이 고수준 모듈에 의존하도록 바꿈으로써 두가지 문제(구현 변경과 테스트가 어려움)을 해결함 
+- 고수준 모듈을 구현하려면 저수준 모듈을 사용해야 하는데, 반대로 저수준 모듈이 고수준 모듈에 의존하도록 하려면 어떻게 해야 할까? ==> 추상화한 인터페이스 
+- CalculateDiscountService 입장에서 봤을 때 룰 적용을 Drools로 구현했는지, 자바로 직접 구현했는지는 중요하지 않다. 
+- 단지, '고객 정보와 구매 정보에 룰을 적용해서 할인 금액을 구한다'는 것이 중요할 뿐이다. 이를 추상화한 인터페이스는 다음과 같다.
+```java
+public interface RuleDiscounter {
+    public Money applyRules(Customer customer, List<OrderLine> orderLines);
+}
+``` 
+
+- CalculateDiscountService가 RuleDiscounter를 이용한 코드 
+```java
+public class CalculateDiscountService {
+    private RuleDiscounter ruleDiscounter;
+
+    public CalculateDiscountService(RuleDiscounter ruleDiscounter) {
+        this.ruleDiscounter = ruleDiscounter;
+    }
+
+    public Money calculateDiscount(List<OrderLine> orderLines, String customerId) {
+        Customer customer = findCustomer(customerId);
+        return ruleDiscounter.applyRules(customer, orderLines);
+    }
+    //...
+}
+``` 
+- CalculateDiscountService는 Drools에 의존하는 코드를 포함하고 있지 않다. 
+- 단지, RuleDiscounter가 룰을 적용한다는 것만 안다.
+- 실제 RuleDiscounter의 구현 객체는 생성자를 통해서 전달 받는다. 
+- 룰 적용을 구현한 클래스는 RuleDiscounter 인터페이스를 상속받아 구현한다. Drools 관ㄹ녀 코드를 이해할 필요는 없고, 상속받아 구현한다는 것만 이해하면 된다.
+```java
+public class DroolsRuleDiscounter implements RuleDiscounter {
+    private KieContainer kContainer;
+
+    public DroolsRuleDiscounter() {
+        KieServices ks = KieServices.Factory.get();
+        kContainer = ks.getKieClasspathContainer();
+    }
+
+    @Override
+    public Money applyRule(Customer customer, List<OrderLine> orderLines) {
+        KieSession kSession = kContainer.newKieSession("discountSession");
+        try {
+            //...
+            kSession.fireAllRules();
+        } finally {
+            kSession.displose();
+        }
+        return money.toImmutableMoney(); 
+    }
+}
+``` 
+
+![image](https://user-images.githubusercontent.com/28394879/134466307-b732fbe8-7e6c-4932-9f4b-8e97cd55889d.png)
+- DIP를 적용한 구조
+- CalculateDiscountService는 더이상 구현 기술인 Drools에 의존하지 않는다.
+- '룰을 이용한 할인 금액 계산'을 추상화한 RuleDiscounter 인터페이스에 의존할 뿐이다. 
+- '룰을 이용한 할인 금액 계산'은 고수준 모듈의 개념이므로 RuleDiscounter 인터페이스는 고수준 모듈에 속한다. 
+- DroolsRuleDiscounter는 고수준의 하위 기능인 RuleDiscounter를 구현한 것이므로 저수준 모듈에 속한다.    
+
+![image](https://user-images.githubusercontent.com/28394879/134466814-9e554aae-4477-4102-9814-4f4846614335.png)
+- 저수준 모듈이 고수준 모듈에 의존(상속은 의존의 다른 형태)
+- 고수준 모듈이 저수준 모듈을 사용하려면 고수준 모듈이 저수준 모듈에 의존해야 하는데, 반대로 저수준 모듈이 고수준 모듈에 의존한다고 해서 이를 DIP(dependency Inversion Principle, 의존 역전 원칙) 이라 부른다. 
+
+### 구현 기술 교체 예시 (구현 변경 어려움 해결)
+**기존 기술 예시**
+
+```java
+// 사용할 저수준 객체 생성
+RuleDiscounter ruleDiscounter = new DroolsRuleDiscounter();
+
+// 생성자 방식으로 주입
+CalculateDiscountService disService = new CalculateDiscountService(ruleDiscounter);
+```
+**구현 기술 변경**
+```java
+// 사용할 저수준 구현 객체 변경 
+RuleDiscounter ruleDiscounter = new SimpleRuleDiscounter();
+
+// 사용할 저수준 모듈을 변경해도 고수준 모듈을 수정할 필요가 없다. 
+CalculateDiscountService disService = new CalculateDiscountService(ruleDiscounter);
+```
+- 의존 주입을 지원하는 스프링과 같은 프레임워크를 사용하면 설정 코드를 수정해서 쉽게 구현체를 변경할 수 있다. 
+
+
+### 테스트 해결 예시 (테스트 어려움 해결)
+- 테스트를 언급하기 전에 CalculateDiscounterService가 제대로 동작하려면 Customer를 찾는 기능도 구현해야 한다. 
+- 이를 위한 고수준 인터페이스를 CustomerRepository라고 하자.
+- CalculateDiscountService는 다음과 같이 두 인터페이스인 CustomerRepository와 RuleDiscounter를 사용해서 기능을 구현하게 된다. 
+```java
+public class CalculateDiscountService {
+    private CustomerRepository customerRepository;
+    private RuleDiscounter ruleDiscounter;
+
+    public CalculateDiscountService (
+        CustomerRepository customerRepository, RuleDiscounter ruleDiscounter) {
+            this.customerRepository = customerRepository;
+            this.ruleDiscounter = ruleDiscounter;
+        }
+    public Money calculateDiscount(OrderLine orderLines, String customerId) {
+        Customer customer = findCustomer(customerId);
+        return ruleDiscounter.applyRules(customer, orderLines);
+    }
+
+    private Customer findCustomer(String customerId) {
+        Customer customer = customerRepository.findById(customerId);
+        if (customer == null) throw new NoCustomerException();
+        return customer;
+    }
+    //...
+}
+```
+
+- CalculateDiscountService가 제대로 동작하는지 테스트하려면 CustomerRepository와 RuleDiscounter를 구현한 객체가 필요하다.
+- 만약 CalculateDiscountService가 저수준 모듈에 직접 의존했다면 저수준 모듈이 만들어지기 전까지 테스트를 할 수가 없었다. 
+- 하지만, CustomerRepository와 RuleDiscounter는 인터페이스이므로 대용 객체를 사용해서 테스트를 진행할 수 있다. 
+- 다음은 대용 객체를 사용해서 Customer가 존재하지 않는 경우 익셉션이 발생하는지 검증하는 테스트 코드의 예시 코드이다.
+```java
+public class CalculateDiscountServiceTest {
+    
+    @Test(expected = NoCustomerException.class);
+    public void noCustomer_thenExceptionShouldBeThrown() {
+        // 테스트 목적의 대용 객체
+        CustomerRepository stubRepo = mock(CustomerRepository.class);
+        when(stubRepo.findById("noCustId")).thenReturn(null);
+
+        RuleDiscounter stubRule = (cust, lines) -> null;
+
+        // 대용 객체를 주입받아 테스트 진행
+        CalculateDiscountService calDisSvc = new CalculateDiscountService(stubRepo, stubRule);
+        calDisSvc.calculateDiscount(someLines, "noCustId");
+    }
+}
+``` 
+- stubRepo와 stubRule은 각각 CustomerRepository와 RuleDiscounter의 대용 객체이다.
+- stubRepo는 Mockito라는 Mock 프레임워크를 이용해서 대용 객체를 생성했고, stubRule은 메서드가 한 개여서 람다식을 이용해서 객체를 생성했다.
+- 두 대용 객체는 테스트를 수행하는 데 필요한 기능만 수행한다.
+- stubRepo의 경우 findById("noCustId")를 실행하면 null을 리턴하는데, calDisSvc를 생성할 때 생성자로 stubRepo를 주입받는다.
+- 따라서, calDisSvc.calculateDiscount(someLines, "noCustId") 코드를 실행하면 CalculateDiscountService의 findById() 메서드에서 실행하는 customerRepository.findById(customerId) 코드는 null을 리턴하고 결과적으로 NoCustomerException을 발생시킨다. 
+- CustomerRepository와 RuleDiscounter의 실제 구현 클래스가 없어도 CalculateDiscountService를 테스트할 수 있음을 보여준다. 
+- 실제 구현 대신 스텁이나 Mock과 같은 테스트 목적의 대용 객체를 사용해서 거의 모든 상황을 테스트할 수 있다. 
+- 이렇게 실제 구현 없이 테스트를 할 수 있는 이유는 DIP를 적용해서 고수준 모듈이 저수준 모듈에 의존하지 않도록 했기 때문이다.
+- 고수준 모듈인 CalculateDiscountService는 저수준 모듈에 직접 의존하지 않기 떄문에 RDBMS를 이용한 CustomerRepository 구현 클래스와 Drools를 이용한 RuleDiscounter 구현 클래스가 없어도 테스트 대용 객체를 이용해서 거의 모든 기능을 테스트할 수 있는 것이다.
+
+### DIP 주의사항
+- DIP를 잘못 생각하면 단순히 인터페이스와 구현 클래스를 분리하는 정도로 받아들일 수 있다.
+- DIP의 핵심은 고수준 모듈이 저수준 모듈에 의존하지 않도록 하기 위함이다.
+
+**잘못된 DIP 적용 예시**
+
+![image](https://user-images.githubusercontent.com/28394879/134473367-9ae5ee28-ecfc-4c15-b8ef-6a38b78ad7aa.png)
+- DIP를 적용한 결과 구조만 보고 저수준 모듈에서 인터페이스를 추출하는 경우이다.
+- 이 구조에서 도메인 영역은 구현 기술을 다루는 인프라스트럭처 영역에 의존하고 있다. 
+- 즉, 여전히 고수준 모듈이 저수준 모듈에 의존하고 있는 것이다.
+- RuleEngine 인터페이스는 고수준 모듈인 도메인 관점이 아니라 룰 엔진이라는 저수준 모듈 관점에서 도출한 것이다.
+- DIP를 적용할 때 하위 기능을 추상화한 인터페이스는 고수준 모듈 관점에서 도출한다.
+- CalculateDiscountService 입장에서 봤을 때 할인 금액을 구하기 위해 룰 엔진을 사용하는지, 직접 연산하는지 여부는 중요하지 않다.
+- 단지 규칙에 따라 할인 금액을 계산한다는 것이 중요할 뿐이다. 
+- 즉, '할인 금액 계산'을 추상화한 인터페이스는 저수준 모듈이 아닌 고수준 모듈에 위치한다. 
+
+**하위 기능을 추상화한 인터페이스가 고수준 모듈에 위치한 제대로된 DIP 적용 예시**
+
+![image](https://user-images.githubusercontent.com/28394879/134473847-7b92d97c-89fb-46f2-b548-f842b5ef423d.png)
+
+
+### DIP와 아키텍처 
+**아키텍처 수준에서 DIP를 적용하면 인프라스트럭처 영역이 응용 영역과 도메인 영역에 의존하는 구조가 된다**
+
+![image](https://user-images.githubusercontent.com/28394879/134475146-8d08e3f7-db8d-4b3c-9caf-16bffc334ad4.png)
+- 인프라스트럭처 영역은 구현 기술을 다루는 저수준 모듈이고, 응용 영역과 도메인 영역은 고수준 모듈이다. 
+- 인프라스트럭처 계층의 가장 하단에 위치하는 계층형 구조와 달리 아키텍처에 DIP를 적용하면 인프라스트럭처 영역이 응용 영역과 도메인 영역에 의존(상속)하는 구조가 된다. 
+- 인프라스트럭처에 위치한 클래스가 도메인이나 응용 영역에 정의한 인터페이스를 상속받아 구현하는 구조가 되므로 도메인과 응용 영역에 대한 영향을 주지 않거나 최소화 하면서 구현 기술을 변경하는 것이 가능하다.
+
+**구현 기술을 변경하는것이 쉬운 DIP 대한 예시** 
+
+![image](https://user-images.githubusercontent.com/28394879/134475925-7cf8e0f6-8b2a-4495-9291-c74e2e9b1341.png)
+- 인프라스트럭처 영역의 EmailNotifier 클래스는 응용 영역의 Notifier인터페이스를 상속받고 있다. 
+- 주문 시 통지 방식에 SMS를 추가해야 한다는 요구사항이 들어왔을 경우 응용 영역의 OrderService는 변경할 필요가 없다.
+  - 두 통지 방식을 함께 제공하는 Notifier 구현 클래스를 인프라스트럭처 영역에 추가하면 된다.
+  - 비슷하게 Mybatis 대신 JPA를 구현 기술로 사용하고 싶다면 JPA를 이용한 OrderRepository 구현 클래스를 인프라스트럭처 영역에 추가하면 된다. 
+
+**바로 위의 DIP그림에서 구현체를 변경했을 경우**
+
+![image](https://user-images.githubusercontent.com/28394879/134476389-56d2873a-ead2-4ccd-be83-30d36b3286e9.png)
+- DIP를 적용하면 응용 영역과 도메인 영역에 영향을 최소화하면서 구현체를 변경하거나 추가할 수 있다. 
+
 </details>
 
 <details> <summary> 4. 도메인 영역의 주요 구성요소 </summary>
