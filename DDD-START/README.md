@@ -844,6 +844,98 @@ public class Address {
 
 <details> <summary> 2. 계층 구조 아키텍처 </summary>
 
+### 계층 구조 아키텍처 
+![image](https://user-images.githubusercontent.com/28394879/134459209-89490833-6dc8-40ae-9acf-4868470d13e9.png)
+- 네 영역을 구성할 때 많이 사용하는 계층 구조이다. 
+- 도메인의 복잡도에 따라 응용과 도메인을 분리하기도 하고 한 계층으로 합치기도 하지만 전체적인 아키텍처는 위 그림의 계층 구조를 따른다. 
+- 상위 계층에서 하위 계층으로의 의존만 존재하고 하위 계층은 상위 계층에 의존하지 않는다. 
+- 예) 표현계층은 응용 계층에 의존하고 응용 계층이 도메인 계층에 의존하지만, 반대로 인프라스트럭처 계층이 도메인에 의존하거나 도메인이 응용 계층에 의존하지 않는다.
+
+**전형적인 계층 구조상의 의존 관계**
+
+![image](https://user-images.githubusercontent.com/28394879/134459868-1ee24106-8de9-4aad-b5a9-6ec7857a65a0.png)
+- 구현의 편리함을 위해 계층구조를 유용하게 적용 
+- 응용 계층은 바로 아래 계층인 도메인 계층에 의존하지만 외부 시스템과의 연봉을 위해 아래 계층인 인프라스트럭처 계층의 의존하기도 한다. 
+- 도메인과 응용계층은 룰 엔진과 DB 연동을 위해 같이 인프라스트럭처 모듈에 의존하게 된다. 
+- 응용 영역과 도메인 영역은 DB나 외부 시스템 연동을 위해 인프라스트럭처의 기능을 사용하므로 이런 계층 구조를 사용하는 것은 직관적으로 이해하기 쉽다.
+- 하지만, 표현, 응용, 도메인 계층이 상세한 구현 기술을 다루는 인프라스트럭처 계층에 종속된다. 
+- 예) 도메인의 가격 계산 규칙 
+  - 할인 금액 계산 로직이 복잡해지면 객체 지향으로 로직을 구현하는 것보다 룰 엔진을 사용하는 것이 더 알맞을 때가 있다. 
+  - Drools라는 룰 엔진을 사용해서 로직을 수행할 수 있는 인프라스트럭처 영역의 코드 
+  - evalutate() 메서드에 값을 주면 별도 파일로 작성한 규칙을 이용해서 연산을 수행하는 코드 정도로만 생각하고 넘어가자.
+  ```java
+    public class DroolsRuleEngine {
+        private KieContainer kContainer;
+
+        public DroolsRuleEngine() {
+            KieServices ks = KieServices.Factory.get();
+            kContainer = ks.getKieClasspathContainer();
+        }
+
+        public void evaluate(String sessionName, List<?> facts) {
+            KieSession kSession = kContainer.newKieSession(sessionName);
+            try {
+                facts.forEach(x -> kSession.insert(x));
+                kSession.fireAllRules();
+            } finally {
+                kSession.dispose();
+            }
+        }
+    }
+  ``` 
+  - 응용 영역은 가격 계산을 위해 인프라스트럭처 영역의 DroolsRuleEngine을 사용 한다. 
+  ```java
+  public class CalculateDiscountService {
+      private DroolsRuleEngine ruleEngine;
+
+      public CalculateDiscountService() {
+          ruleEngine = new DroolsRuleEngine();
+      }
+
+      public Money calculateDiscount(List<OrderLine> orderLines, String customerId) {
+          Customer customer = findCustomer(customerId);
+
+          MutableMoney money = new MutableMoney(0);
+          List<?> facts = Arrays.asList(customer, money);
+          facts.addAll(orderLines);
+          ruleEngine.evalute("discountCalculation", facts);
+          return money.toImmutableMoney();
+      }
+      //...
+  }
+  ``` 
+  - CalculateDiscountService가 동작은 하겠지만 이 코드는 두가지 문제를 안고 있다.
+    1.  테스트 어려움 
+        -  CalculateDiscountService만 테스트하기 어렵다. 
+        -  CalculateDiscountService를 테스트하려면 RuleEngine이 완벽하게 동작해야 한다.
+        -  RuleEngine 클래스와 관련 설정 파일을 모두 만든 이후에 비로소 CalculateDiscountService가 올바르게 동작하는지 확인할 수 있다.
+    2.  기능 확장의 어려움
+        ```java
+        public class CalculateDiscountService {
+            private DroolsRuleEngine ruleEngine;
+
+            public CalculateDiscountService() {
+                ruleEngine = new DroolsRuleEngine();
+            }
+
+            public Money calculateDiscount(List<OrderLine> orderLines, String customerId) {
+                Customer customer = findCustomer(customerId);
+
+                MutableMoney money = new MutableMoney(0); // Drools에 특화된 코드: 연관결과를 받기 위해 추가한 타입
+                List<?> facts = Arrays.asList(customer, money); // Drools에 특화된 코드: 룰에 필요한 데이터(지식)
+                facts.addAll(orderLines); // Drools에 특화된 코드: 룰에 필요한 데이터(지식)
+                ruleEngine.evalute("discountCalculation", facts); // discountCalculation => Drools에 특화된 코드: Drools의 세션 이름 
+                return money.toImmutableMoney();
+            }
+        }
+        ```
+        -  코드만 보면 Drools가 제공하는 타입을 직접 사용하지 않으므로 CalculateDiscountService가 Drools 자체에 의존하지 않는다고 생각할 수 있다. 
+        -  하지만, `discountCalculation` 문자열은 Drools의 세션 이름을 의미한다. 따라서, Drools의 세션 이름을 변경하면 CalculateDiscountService의 코드도 함께 변경해야 한다. 
+        -  MutableMoney는 룰 적용 결과값을 보관하기 위해 추가한 타입인데 다른 방식을 사용했다면 필요 없는 타입이다.
+ - 이처럼 CalculateDiscountService가 겉으로는 인프라스트럭처의 기술에 직접적인 의존을 하지 않는 것처럼 보여도 실제론느 Drools라는 인프라스트럭처 영역의 기술에 완전하게 의존하고 있다.
+ - 이런 상황에서 Drools가 아닌 다른 구현 기술을 사용하려면 코드의 많은 부분을 고쳐야 한다.
+ - '테스트 어려움', '기능 확장의 어려움' 을 해소하려면 어떻게 해야 할까? 답은 DIP를 적용하면 된다.  
+
 </details>
 
 <details> <summary> 3. DIP </summary>
