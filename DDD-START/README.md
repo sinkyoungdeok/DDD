@@ -1468,3 +1468,32 @@ public class Order {
   
 
 </details>
+
+
+
+# [3. 애그리거트](./3.애그리거트)
+
+<details> <summary> 1. 애그리거트 </summary>
+
+</details>
+
+<details> <summary> 2. 애그리거트 루트 </summary>
+
+</details>
+
+<details> <summary> 3. 리포지터리와 애그리거트 </summary>
+
+</details>
+
+<details> <summary> 4. ID를 이용한 애그리거트 참조 </summary>
+
+</details>
+
+
+<details> <summary> 5. 애그리거트 간 집합 연관 </summary>
+
+</details>
+
+<details> <summary> 6. 애그리거트를 팩토리로 사용하기 </summary>
+
+</details>
