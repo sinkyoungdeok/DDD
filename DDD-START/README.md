@@ -1148,6 +1148,220 @@ public class CalculateDiscountServiceTest {
 
 <details> <summary> 4. 도메인 영역의 주요 구성요소 </summary>
 
+### 도메인 영역의 주요 구성요소 
+- 도메인 영역의 모델은 도메인의 주요 개념을 표현하며 핵심이 되는 로직을 구현한다.
+
+**표) 도메인 영역의 주요 구성요소**
+|요소|설명|
+|---|-------|
+|엔티티 ENTITY|고유의 식별자를 갖는 객체로 자신의 라이프사이클을 갖는다. 주문(Order), 회원(Member), 상품(Product)과 같이 도메인의 고유한 개념을 표현한다. 도메인 모델의 데이털르 포함하며 해당 데이터와 관련된 기능을 함께 제공한다.|
+|밸류 VALUE|고유의 식별자를 갖지 않는 객체로 주로 개념적으로 하나인 도메인 객체의 속성을 표현할 때 사용된다. 배송지 주소를 표현하기 위한 주소(Address)나 구매 금액을 위한 금액(Money)과 같은 타입이 밸류 타입이다. 엔티티의 속성으로 사용될 뿐만 아니라 다른 밸류 타입의 속성으로도 사용될 수 있다.|
+|애그리거트 AGGREGATE|애그리거트는 관련된 엔티티와 뺄류 객체를 개념적으로 하나로 묶은 것이다. 예를 들어, 주문과 관련된 Order엔티티, OrderLine 밸류, Orderer 밸류 객체를 '주문'애그리거트로 묶을 수 있다.|
+|리포지터리 REPOSITORY|도메인 모델의 영속성을 처리한다. 예를들어, DBMS 테이블에서 엔티티 객체를 로딩하거나 저장하는 기능을 제공한다.|
+|도메인 서비스 DOMAIN SERVICE|특정 엔티티에 속하지 않은 도메인 로직을 제공 한다. '할인 금액 계산'은 상품, 쿠폰, 회원 등급, 구매 금액 등 다양한 조건을 이용해서 구현하게 되는데, 이렇게 도메인 로직이 여러 엔티티와 밸류를 필요로 할 경우 도메인 서비스에서 로직을 구현한다.|
+
+### 엔티티와 밸류
+- 도메인 모델의 엔티티와 DB 관계형 모델의 엔티티는 다르다. (같지 않다)
+- DB관계형 모델의 엔티티는 데이터만 제공하지만, 도메인 모델의 엔티티는 데이터와 함께 도메인 기능을 함께 제공한다. 
+  - 예) 주문을 표현하는 엔티티는 주문과 관련된 데이터뿐만 아니라 배송지 주소 변경을 위한 기능을 함께 제공한다. 
+
+```java
+public class Order {
+    // 주문 도메인 모델의 데이터
+    private OrderNo number;
+    private Orderer orderer;
+    private ShippingInfo shippingInfo;
+    //...
+
+    // 도메인 모델 엔티티는 도메인 기능도 함께 제공
+    public void changeShippingInfo(ShippingInfo newShippingInfo) {
+        //...
+    }
+}
+```
+- 도메인 모델의 엔티티는 단순히 데이터를 담고 있는 데이터 구조라기보다는 데이터와 함께 기능을 제공하는 객체이다. 
+- 도메인 모델의 엔티티는 두 개 이상의 데이터가 개념적으로 하나인 경우 밸류 타입을 이용해서 표현할 수 있다. (RDBMS는 밸류 타입을 제대로 표현하기 힘들다)
+  - 위 코드에서 주문자를 표현하는 Orderer는 밸류 타입으로 다음과 같이 주문자 이름과 이메일 데이터를 포함할 수 있다.
+  ```java
+  public class Orderer {
+      private String name;
+      private String email;
+  }
+  ```  
+
+**RDBMS는 밸류를 제대로 표현하기 힘들다**
+![image](https://user-images.githubusercontent.com/28394879/134623817-c899365e-0834-4756-8f83-444af1aa1d16.png)
+
+- 왼쪽 테이블의 경우 주문자(Orderer)라는 개념이 드러나지 않고 주문자의 개별 데이터만 드러난다.
+- 오른쪽 테이블의 경우 주문자 데이터를 별도 테이블에 저장했지만 이는 테이블의 엔티티에 가깝지 밸류 타입의 의미가 드러나지는 않는다.
+- 반면 도메인 모델의 Orderer는 주문자라는 개념을 잘 반영하므로 도메인을 보다 잘 이해할 수 있도록 돕는다. 
+
+**밸류 타입 데이터를 변경할 때 객체 자체를 완전히 교체한다**
+```java
+public class Order {
+    private ShippingInfo shippingInfo;
+    //...
+    // 도메인 모델 엔티티는 도메인 기능도 함께 제공
+    public void changeShippingInfo(ShippingInfo shippingInfo) {
+        checkShippingInfoChangeable();
+        setShippingInfo(newShippingInfo);
+    }
+
+    private void setShippingInfo(ShippingInfo newShippingInfo) {
+        if(newShippingInfo == null) throw new IllegalArgumentException() ;
+        // 밸류타입의 데이털르 변경할 때는 새로운 객체로 교체한다.
+        this.ShippingInfo = newShippingInfo;
+    }
+}
+```
+- 밸류는 불변으로 구현하는것이 권장사항이다.
+- 엔티티의 밸류 타입 데이터를 변경할 때 객체 자체를 완전히 교체 한다. 
+- 배송지 정보를 변경하는 코드는 기존 객체의 값을 변경하지 않고 위 코드 같이 새로운 객체를 필드에 할당한다.
+
+
+### 애그리거트
+
+**애그리거트의 필요성**
+- 도메인이 커질수록 개발할 도메인 모델도 커지면서 많은 엔티티와 밸류가 출현한다.
+- 엔티티와 밸류 개수가 많아지면 많아 질수록 모델은 점점 더 복잡해진다.
+- 도메인 모델이 복잡해지면 개발자가 전체 구조가 아닌 한 개 엔티티와 밸류에만 집중하게 되는 경우가 발생한다.
+- 이때 상위 수준에서 모델을 관리하기보다 개발 요소에만 초점을 맞추다 보면 큰 수준에서 모델을 이해하지 못해 큰 틀에서 모델을 관리 할 수 없는 상황에 빠질 수 있다.
+- 지도를 볼때 매우 상세하게 나온 대축적 지도를 보면 큰 수준에서 어디에 위치하고 있는지 이해하기 어려우므로 큰 수준에서 보여주는 소축척 지도를 함꼐 봐야 현재 위치를 보다 정확하게 이해할 수 있따.
+- 이와 비슷하게 도메인 모델도 개발 객체뿐만 아니라 상위 수준에서 모델을 볼 수 있어야 전체 모델의 관계와 개발 모델을 이해하는데 도움이 된다. 
+- 도메인 모델에서 전체 구조를 이해하는데 도움이 되는 것이 바로 애그리거트이다.
+  
+**애그리 거트**
+- 관련 객체를 하나로 묶은 군집이다.
+- 예) 주문 도메인 
+  - 주문
+  - 배송지정보
+  - 주문자
+  - 주문목록
+  - 총 결제 금액 
+  - 5개의 하위 모델로 구성되는데 이때 이 하위 개념을 표현한 모델을 하나로 묶어서 '주문'이라는 상위 개념으로 표현할 수 있다.
+- 개별 객체가 아닌 관련 객체를 묶어서 객체 군집 단위로 모델을 바라볼 수 있게 된다.
+- 개별 객체 간의 관계가 아닌 애그리거트 간의 관계로 도메인 모델을 이해하고 구현할 수 있게 되며, 이를 통해 큰 틀에서 도메인 모델을 관리할 수 있게 된다.
+- 애그리거트는 군집에 속한 객체들을 관리하는 루트 엔티티를 갖는다.
+- 루트엔티티
+  - 애그리거트에 속해 있는 엔티티와 밸류 객체를 이용해서 애그리거트가 구현해야 할 기능을 제공
+  - 애그리거트를 사용하는 코드는 애그리거트 루트가 제공하는 기능을 실행하고 애거리거트 루트를 통해서 간접적으로 애그리거트 내의 다른 엔티티나 밸류 객체에 접근하게 된다. 
+  - 이는 애그리거트의 내부 구현을 숨겨서 애그리거트 단위로 구현을 캡슐화 할 수 있도록 돕는다.
+
+**애그리거트 루트인 Order가 애그리거트에 속한 객체를 관리한다.**
+![image](https://user-images.githubusercontent.com/28394879/134633979-5e762e94-62ff-49f4-b9ee-4b29b367ae31.png)
+- 주문 애그리거트
+- 애그리거트 루트인 Order는 주문 도메인 로직에 맞게 애그리거트의 상태를 관리한다. 
+  - 예) Order의 배송지 정보 변경 기능은 배송지를 변경할 수 있는지 확인한 뒤에 배송지 정보를 변경한다.
+  
+**예) Order의 배송지 정보 변경 기능은 배송지를 변경할 수 있는지 확인한 뒤에 배송지 정보를 변경한다.**
+```java
+public class Order {
+    //...
+    public void changeShippingInfo(ShippingInfo newInfo) {
+        checkShippinrgInfoChangeable(); // 배송지 변경 가능 여부 확인
+        this.shippingInfo = newInfo;
+    }
+    
+    private void checkShippinginfoChangeable() {
+        //... 배송지 정보를 변경할 수 있는지 여부를 확인하는 도메인 규칙 구현 
+    }
+}
+```
+- checkShippingInfoChangeable() 메서드는 도메인 규칙에 따라 배송지를 변경할 수 있는지 확인한다.
+  - 예) 이미 배송이 시작된 경우 익셉션을 발생하는 식으로 도메인 규칙을 구현 
+- 주문 개그리거트는 Order를 통하지 않고 ShippingInfo를 변경할 수 있는 방법을 제공하지 않는다.
+- 즉, 배송지를 변경하려면 루트 엔티티인 Order를 사용해야 하므로 배송지 정보를 변경할 떄에는 Order가 구현한 도메인 로직을 항상 따르게 된다.
+- 애그리거트를 구현할떄는 고려할 것이 많다.
+- 애그리거트를 어떻게 구현하느냐에 따라 구현이 복잡해지기도 하고 트랜잭션 범위가 달라지기도 한다.
+- 또한 선택한 기술에 따라 애그리거트 구현에 제약이 생기기도 한다.
+- 애그리거트의 구현에 대한 내용은 3장에서 자세히 살펴본다.
+
+### 리포지터리
+- 도메인 객체를 지속적으로 사용하려면 RDBMS, NoSQL, 로컬 파일과 같은 물리적인 저장소에 도메인 객체를 보관해야 한다.
+- 이를 위한 도메인 모델이 리포지터리(repository)이다.
+- 엔티티나 밸류: 요구사항에서 됴출되는 도메인 모델 / 리포지터리: 구현을 위한 도메인 모델
+- 리포지터리는 애그리거트 단위로 도메인 객체를 저장하고 조회하는 기능을 정의한다.
+
+**예) 주문 애그리거트를 위한 리포지 터리**
+
+```java
+public interface OrderRepository {
+    public Order findBynumber(OrderNumber number);
+    public void save(Order order);
+    public void delete(Order order);
+}
+``` 
+- OrderRepository의 메서드를 보면 대상을 찾고 저장하는 단위가 애그리거트 루트인 Order인 것을 알 수 있다.
+- Order는 애그리거트에 속한 모든 객체를 포함하고 있으므로 결과적으로 애그리거트 단위로 저장하고 조회한다.
+- 도메인 모델을 사용해야 하는 코드는 리포지터리를 통해서 도메인 객체를 구한 뒤에 도메인 객체의 기능을 실행하게 된다.
+
+**예) 주문 취소 기능을 제공하는 응용 서비스는 OrderRepository를 이용해서 Order 객체를 구하고 해당 기능을 실행**
+```java
+public class CancelOrderService {
+    private OrderRepository orderRepository;
+
+    public void cancel(OrderNumber number) {
+        Order order = orderRepository.findByNumber(number);
+        if (order == null) throw new NoOrderException(number);
+        order.cancel();
+    }
+
+    //... DI 등의 방식으로 OrderRepository 객체 전달 
+}
+```
+- 도메인 모델 관점에서 OrderRepository는 도메인 객체를 영속화하는데 필요한 기능을 추상화한 것으로 고수준 모듈에 속한다.
+- 기반 기술을 이용해서 OrderRepository를 구현한 클래스는 저수준 모듈로 인프라스트럭처 영역에 속한다. 
+
+**리포지터리 인터페이스는 도메인 모델 영역에 속하며, 실제 구현 클래스는 인프라스트럭처 영역에 속한다.**
+![image](https://user-images.githubusercontent.com/28394879/134641093-792e01b7-4417-444e-8500-917665513c8e.png)
+
+
+- 응용 서비스는 의존 주입과 같은 방식을 사용해서 실제 리포지터리 구현 객체에 접근한다.
+
+**스프링 프레임워크의 의존 주입 방식**
+```java
+@Configuration
+public class OrderServiceConfig { // 응용 서비스 영역 설정
+    @Autowired
+    private OrderRepository orderRepository;
+
+    @Bean
+    public CancelOrderService cancelOrderService() {
+        return new CancelOrderService(orderRepository);
+    }
+}
+
+@Configuration
+public class RepositoryConfig { // 인프라스트럭처 영역 설정
+    @Bean
+    public JpaOrderRepository orderRepository() {
+        return new JpaOrderRepository();
+    }
+
+    @Bean
+    public LocalContainerEntityManagerFactoryBean emf() {
+        //...
+    }
+
+}
+``` 
+- 응용 서비스와 리포지터리는 밀접한 연관이 있다.
+  - 응용 서비스는 필요한 도메인 객체를 구하거나 저장할 떄 리포지터리를 사용한다.
+  - 응용 서비스는 트랜잭션을 관리하는데, 트랜잭션 처리는 리포지터리 구현 기술에 영향을 받는다.
+- 리포지터리의 사용 주체가 응용 서비스이기 때문에 리포지터리는 응용 서비스가 필요로 하는 메소드를 제공한다. 가장 기본이 되는 메서드는 다음의 두 메서드이다.
+  - 에그리거트를 저장하는 메서드
+  - 에그리거트 루트 식별자로 에그리거트를 조회하는 메서드 
+  - 두 메서드는 다음의 형태를 갖는다.
+  ```java
+  public interface SomeRepository {
+      void save(Some some);
+      Some findById(SomeId id);
+  }
+  ``` 
+  - 이 외에 필요에 따라 delete(id)나 counts() 등의 메서드를 제공하기도 한다.
+- 리포지터리를 구현하는 방법은 선택한 구현 기술에 따라 달라지는데 리포지터리의 구현에 대한 내용은 4장과 5장에서 살펴보도록 한다. 
+
+
 </details>
 
 <details> <summary> 5. 요청 처리 흐름 </summary>
