@@ -1431,24 +1431,40 @@ public class Order {
 
 ### 모듈 구성
 **영역별로 별도 패키지로 구성한 모듈 구조**
+
 ![image](https://user-images.githubusercontent.com/28394879/134653015-94c85889-e4bf-4ff2-9782-d07412ffcf63.png)
 - 아키텍처의 각 영역은 별도 패키지에 위치한다.
 - 패키지 구성 규칙에 한 개의 정답만 존재하는 것은 아니지만 영역별로 모듈이 위치한 패키지를 구성 할 수 있다.
 - 여기서 com.myshop은 예시로 든 패키지이므로 알맞은 패키지로 대체하면 된다.
   
 **도메인이 크면 하위 도메인별로 모듈을 나눈다**
+
 ![image](https://user-images.githubusercontent.com/28394879/134657605-0013a15d-c32a-443f-9f06-4d40bf1fbb62.png)
 
+
 **하위 도메인을 하위 패키지로 구성한 모듈 구조**
+
 ![image](https://user-images.githubusercontent.com/28394879/134657118-86d15ac3-5917-441a-8061-0aa62639430f.png)
+
 - domain 모듈은 도메인에 속한 애그리거트를 기준으로 다시 패키지를 구성한다.
 - 예) 카탈로그 하위 도메인을 위한 도메인은 상품 애그리거트와 카테고리 애그리거트로 구성된다고 할 경우 domain을 두 개의 하위 패키지로 구성할 수 있다.
 
 
 **etc**
+
 - 각 애그리거트와 모델과 리포지터리는 같은 패키지에 위치시킨다.
   - 예) 주문과 관련된 Order, OrderLine, Orderer, OrderRepository 등은 com.myshop.order.domain 패키지에 위치시킨다.
-- 도메인이 복잡하면 도메인 모델과 도메인  
+- 도메인이 복잡하면 도메인 모델과 도메인 서비스를 다음과 같이 별도 패키지에 위치시킬 수도 있다.
+  - com.myshop.order.domain.order: 애그리거트 위치
+  - com.myshop.order.domain.service: 도메인 서비스 위치
+- 응용 서비스도 다음과 같이 도메인 별로 패키지를 구분할 수 있다.
+  - com.myshop.catalog.application.proudct
+  - com.myshop.catalog.application.category
+
+- 모듈 구조를 얼마나 세분화해야 하는지에 대해 정해진 규칙은 없다.
+- 단지, 한 패키지에 너무 많은 타입이 몰려서 코드를 찾을 때 불편한 정도만 아니면 된다.
+- 개인적으로는 한 패키지에 가능하면 10개 미만으로 타입 개수를 유지하려고 노력한다.
+- 이 개수가 넘어가면 모듈을 분리하는 시도를 해본다. 
   
 
 </details>
