@@ -3,7 +3,7 @@
 
 <details> <summary> 1. 도메인 </summary>
 
-## 도메인
+## 1. 도메인
 
 - 개발자 입장에서 온라인 서점은 구현해야 할 소프트웨어의 대상이 된다. 온라인 서점 소프트웨어는 온라인으로 책을 판매하는데 필요한
 상품 조회, 구매, 결제, 배송추적 등의 기능을 제공해야 한다. 이때 '온라인 서점' 은 소프트웨어로 해결하고자 하는 문제 영역
@@ -35,7 +35,7 @@
 
 <details> <summary> 2. 도메인 모델 </summary>
 
-## 도메인 모델
+## 2. 도메인 모델
 
 - 특정 도메인을 개념적으로 표현한 것
 - 예) 주문도메인
@@ -79,7 +79,7 @@
 
 <details> <summary> 3. 도메인 모델 패턴 </summary>
 
-## 도메인 모델 패턴
+## 3. 도메인 모델 패턴
 
 ### 일반적인 애플리케이션의 아키텍처
 ![image](https://user-images.githubusercontent.com/28394879/133555540-2886ce28-8f46-49ab-a204-1d38bce84105.png)
@@ -193,7 +193,7 @@ public enum OrderState {
 
 <details> <summary> 4. 도메인 모델 도출 </summary>
 
-## 도메인 모델 도출
+## 4. 도메인 모델 도출
 
 - 도메인을 모델링 할때 기본이 되는 작업은 모델을 구성하는 핵심 구성요소, 규칙, 기능을 찾는 것이다.
 - 이 과정은 요구사항에서 출발한다.
@@ -398,7 +398,7 @@ public class Order {
 
 <details> <summary> 5. 엔티티와 밸류 </summary>
 
-## 엔티티와 벨류
+## 5. 엔티티와 벨류
 - 도출한 모델은 크게 엔티티(Entity)와 벨류(Value)로 구분
 - 앞서 요구사항 분석 과정으로 만든 모델 
   - ![image](https://user-images.githubusercontent.com/28394879/133707691-a201753b-7ccd-4d71-8b96-4ef1b810cc4f.png)
@@ -729,7 +729,7 @@ public class Address {
 
 <details> <summary> 6. 도메인 용어  </summary>
 
-### 도메인 용어
+## 6. 도메인 용어
 - 코드를 작성할 때 도메인에서 사용하는 용어는 매우 중요하다.
 - 도메인에서 사용하는 용어를 코드에 반영하지 않으면 그 코드는 개발자에게 코드의 의미를 해석해야 하는 부담을 준다.
   - 예) OrderState
@@ -781,7 +781,7 @@ public class Address {
 
 <details> <summary> 1. 네 개의 영역 </summary>
 
-### 네 개의 영역
+## 1. 네 개의 영역
 - 아키텍처를 설계할 때 출현하는 전형적인 영역
   - '표현'
   - '응용'
@@ -844,7 +844,7 @@ public class Address {
 
 <details> <summary> 2. 계층 구조 아키텍처 </summary>
 
-### 계층 구조 아키텍처 
+## 2. 계층 구조 아키텍처 
 ![image](https://user-images.githubusercontent.com/28394879/134459209-89490833-6dc8-40ae-9acf-4868470d13e9.png)
 - 네 영역을 구성할 때 많이 사용하는 계층 구조이다. 
 - 도메인의 복잡도에 따라 응용과 도메인을 분리하기도 하고 한 계층으로 합치기도 하지만 전체적인 아키텍처는 위 그림의 계층 구조를 따른다. 
@@ -940,7 +940,7 @@ public class Address {
 
 <details> <summary> 3. DIP </summary>
 
-### DIP
+## 3. DIP
 ![image](https://user-images.githubusercontent.com/28394879/134463969-c5c2ac6b-0e5f-4351-846c-7aa64c390442.png)
 - 가격 할인 계싼을 하려면 왼쪽과 같이 고객 정보를 구해야 하고, 구한 고객 정보와 주문 정보를 이용해서 룰을 실행해야 한다. 
 - 여기서 CalculateDiscountService는 고수준 모듈이다.
@@ -1148,7 +1148,7 @@ public class CalculateDiscountServiceTest {
 
 <details> <summary> 4. 도메인 영역의 주요 구성요소 </summary>
 
-### 도메인 영역의 주요 구성요소 
+## 4. 도메인 영역의 주요 구성요소 
 - 도메인 영역의 모델은 도메인의 주요 개념을 표현하며 핵심이 되는 로직을 구현한다.
 
 **표) 도메인 영역의 주요 구성요소**
@@ -1366,7 +1366,7 @@ public class RepositoryConfig { // 인프라스트럭처 영역 설정
 
 <details> <summary> 5. 요청 처리 흐름 </summary>
 
-### 요청 처리 흐름
+## 5. 요청 처리 흐름
 - 사용자 입장에서 봤을 때 웹 애플리케이션이나 데스크톱 애플리케이션과 같은 소프트웨어는 기능을 제공한다.
 - 사용자가 애플리케이션에 기능 실행을 요청하면 그 요청을 처음 받는 영역은 표현 영역이다.
 - 스프링 MVC를 사용해서 웹 애플리케이션을 구현했다면 컨트롤러가 사용자의 요청을 받아 처리하게 된다.
@@ -1429,7 +1429,7 @@ public class Order {
 
 <details> <summary> 6. 모듈 구성 </summary>
 
-### 모듈 구성
+## 6. 모듈 구성
 **영역별로 별도 패키지로 구성한 모듈 구조**
 
 ![image](https://user-images.githubusercontent.com/28394879/134653015-94c85889-e4bf-4ff2-9782-d07412ffcf63.png)
@@ -1474,6 +1474,8 @@ public class Order {
 # [3. 애그리거트](./3.애그리거트)
 
 <details> <summary> 1. 애그리거트 </summary>
+
+## 1. 애그리거트
 
 </details>
 
