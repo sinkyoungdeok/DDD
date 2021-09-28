@@ -2129,4 +2129,71 @@ public class ProductListService {
 
 <details> <summary> 6. 애그리거트를 팩토리로 사용하기 </summary>
 
+## 6. 애그리거트를 팩토리로 사용하기
+- 예) 온라인 쇼핑몰에서 고객이 여러 차례 신고를 해서 특정 상점이 더 이상 물건을 등록하지 못하도록 차단한 상태일때
+
+### 응용 서비스에서 도메인 로직 처리
+- 상품 등록 기능을 구현한 응용 서비스는 다음과 같이 상점 계정이 차단 상태가 아닌 경우에만 상품을 생성하도록 구현할 수 있다.
+```java
+public class RegisterProductService {
+  
+  public ProductId registerNewProduct(NewProductRequest req) {
+    Store account = accountRepository.findStoreById(req.getStoreId());
+    checkNull(account);
+    if (account.isBlobked()) {
+      throw new StoreBlockedException();
+    }
+    ProductId id = productRepository.nextId();
+    Product product = new Product(id, account.getId(), ...생략.);
+    productRepository.save(product);
+    return id;
+  }
+  //...
+}
+``` 
+- 이 코드는 Product를 생성 가능한지 판단하는 코드와 Product를 생성하는 코드가 분리되어 있다.
+- 코드가 나빠 보이지는 않지만 중요한 도메인 로직 처리가 응용 서비스에 노출되었다.
+- Store가 Product를 생성할 수 있는지 여부를 판단하고 Product를 생성하는 것은 논리적으로 하나의 도메인 기능인데 이 도메인 기능을 응용 서비스에서 구현하고 있는 것이다.
+- 이 도메인 기능을 넣기 위한 별도의 도메인 서비스나 팩토리 클래스를 만들 수도 있지만 이 기능을 구현하기에 더 좋은 장소는 Store 애그리거트이다.
+- Product를 생성하는 기능을 Store 애그리거트에 다음과 같이 옮겨보자.
+
+### Store 애그리거트에서 도메인 로직 처리
+```java
+public class Store extends Member {
+  
+  public Product createProduct(ProductId newProductId, ...생략) {
+    if(isBlocked()) throw new StoreBlockedException();
+    return new Product(newProductId, getId(), ...생략);
+  }
+}
+``` 
+- Store 애그리거트의 createProduct()는 Product 애그리거트를 생성하는 팩토리 역할을 한다.
+- 팩토리 역할을 하면서도 중요한 도메인 로직을 구현하고 있다. 
+- 팩토리 기능을 구현했으므로 이제 응용 서비스는 팩토리 기능을 이용해서 Product를 생성하면 된다.
+```java
+public class RegisterProductService {
+  
+  public ProductId registerNewProduct(NewProductRequest req) {
+    Store account = accountRepository.findStoreById(req.getStoreId());
+    checkNull(account);
+    ProductId id = productRepository.nextId();
+    Product product = account.createProduct(id, ...생략);
+    productRepository.save(product);
+    return id;
+  }
+}
+``` 
+- 응용 서비스에서 도메인 로직 처리한 방법과의 차이점이라면 응용 서비스에서 더 이상 Store의 상태를 확인하지 않는다는 것이다. 
+- Store가 Product를 생성할 수 있는지 여부를 확인하는 도메인 로직은 Store에서 구현하고 있다.
+- 이제 Product 생성 가능 여부를 확인하는 도메인 로직을 변경해도 도메인 영역의 Store만 변경하면 되고 응용 서비스는 영향을 받지 않는다.
+- 도메인의 응집도도 높아졌다.
+- 이게 바로 애그리거트를 팩토리로 사용할 때 얻을 수 있는 장점이다.
+
+### 애그리거트 팩토리
+- 애그리거트가 갖고 있는 데이터를 이용해서 다른 애그리거트를 생성해야 한다면 애그리거트에 팩토리 메서드를 구현하는 것을 고려해보자.
+- Store에 Product를 생성하는 팩토리 메서드를 추가하면 Product를 생성할 때 필요한 데이터의 일부를 직접 제공하면서 동시에 중요한 도메인 로직을 함께 구현할 수 있게 된다.  
+  - Product의 경우 제품을 생성한 Store의 식별자를 필요로 한다.
+  - 즉, Store의 데이터를 이용해서 Product를 생성한다.
+  - 게다가 Product를 생성할 수 있는 조건을 판단할때 Store의 상태를 이용한다.
+
 </details>
