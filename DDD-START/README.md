@@ -2007,6 +2007,124 @@ public class Order {
 
 <details> <summary> 5. 애그리거트 간 집합 연관 </summary>
 
+## 5. 애그리거트 간 집합 연관
+
+
+- 애리트거트 간 1:N과 N:M 연관에 대해서 알아보자.
+  - 컬렉션을 이용한 연관이다.
+  - 예) 카테고리와 상품 간의 연관이 대표적이다.
+
+
+### 1:N 
+- 카테고리 입장에서 한 카테고리에 한 개 이상의 상품이 속할 수 있으니 카테고리와 상품은 1:N 관계이다.
+- 한 상품이 한 카테고리에만 속할 수 있다면 상품과 카테고리 관계는 N:1 관계이다.
+- 애그리거트 간 1:N 관계는 Set과 같은 컬렉션을 이용해서 표현할 수 있다. 
+- 예) Category가 연관된 Product들 값으로 갖는 컬렉션 필드로 정의
+```java
+public class Category {
+  private Set<Product> products; // 다른 애그리거트에 대한 1:N 연관 
+}
+``` 
+- 개념적으로 존재하는 애그리거트 간의 1:N 연관을 실제 구현에 반영하는것이 요구사항을 충족하는 것과 상관없는 경우가 종종 있다.
+- 예) 특정 카테고리에 있는 상품 목록을 보여주는 요구사항
+- 보통 목록 관련 요구사항은 한 번에 전체 상품을 보여주기보다는 페이징을 이용해서 제품을 나눠서 보여준다.
+- 이 기능을 카테고리 입장에서 1:N 연관을 이용해서 구현하면 아래와 같은 코드가 나온다.
+```java
+public class Category {
+  private Set<Product> products;
+  
+  public List<Product> getProducts(int page, int size) {
+    List<Product> sortedProducts = sortById(products);
+    return sortedProducts.subList((page - 1) * size, page * size);
+  }
+}
+``` 
+- 이 코드를 실제 DBMS와 연동해서 구현하면 Category에 속한 모든 Product를 조회하게 된다.
+- Product 개수가 수백에서 수만 개 정도로 많다면 이 코드를 실행할 때마다 실행 속도가 급격히 느려져 성능에 심각한 문제를 일으킬 것이다.
+- 개념적으로는 애그리거트 간에 1:N 연관이 있더라도 이런 성능상의 문제 때문에 애그리거트 간의 1:N연관을 실제 구현에 반영하는 경우는 드물다. 
+- 카테고리에 속한 상품을 구할 필요가 있다면 상품 입장에서 자신이 속한 카테고리를 N:1로 연관지어 구하면 된다.
+- 이를 구현 모델에 반영하면 Product에 다음 코드와 같이 Category로의 연관을 추가하고 그 연관을 이용해서 특정 Category에 속한 Product목록을 구하면 된다.
+```java
+public class Product {
+  //...
+  private CategoryId category;
+  //...
+}
+```
+- 카테고리에 속한 상품 목록을 제공하는 응용 서비스는 다음과 같이 ProductRepository를 이용해서 categoryId가 지정한 카테고리 식별자인 Product 목록을 구한다. 
+    
+```java
+public class ProductListService {
+
+  public Page<Product> getProductOfCategory(Long categoryId, int page, int size) {
+    Category category = categoryRepository.findById(categoryId);
+    checkCategory(category);
+    List<Product> products = productRepository.findByCategoryId(category.getId(), page, size);
+    int totalCount = productRepository.countsByCategoryId(category.getId());
+    return new Page(page, size, totalCount, products);
+  }
+}
+```
+
+### M:N
+- M:N 연관은 개념적으로 양쪽 애그리거트에 컬렉션으로 연관을 만든다.
+  - 예) 상품이 여러 카테고리에 속할 수 있을경우
+  - 카테고리:상품 = M:N
+- 앞서 1:N 연관 처럼 M:N 연관도 실제 요구사항을 고려해서 M:N 연관을 구현에 포함 시킬지 여부를 결정해야 한다. 
+  - 보통 특정 카테고리에 속한 상품 목록을 보여줄 때 목록 화면에서 각 상품이 속한 모든 카테고리를 상품 정보에 표시하지는 않는다.
+  - 제품이 속한 모든 카테고리가 필요한 화면은 상품 상세 화면이다.
+  - 이 요구사항을 고려할 때 카테고리에서 상품으로의 집합 연관은 필요하지 않다.
+  ```java
+  public class Product
+
+  private Set<CategoryId> categoryIds;
+  ``` 
+  - 위와 같이 상품에서 카테고리로의 집합 연관만 존재하면 된다.
+  - 즉, 개념적으로 상품과 카테고리의 양방향 M:N 연관이 존재하지만 실제 구현에서는 상품에서 카테고리로의 단방향 M:N 연관만 적용하면 되는 것이다.
+- RDBMS를 이용해서 M:N 연관을 구현하려면 조인 테이블을 사용한다.
+  ![image](https://user-images.githubusercontent.com/28394879/135053480-e22f47eb-1565-4849-891b-eb553d583f46.png)
+  - 상품과 카테고리의 M:N 연관을 위와 같이 조인 테이블을 이용해서 구한다.
+- JPA를 이용하면 다음과 같은 매핑 설정을 사용해서 ID 참조를 이용한 M:N 단방향 연관을 구현 할 수 있다.
+  ```java
+  @Entity
+  @Table(name = "product")
+  public class Product {
+    @EmbeddedId
+    private ProductId id;
+    
+    @ElementCollection
+    @CollectionTable(name = "product_category",
+      joinColumns = @JoinColumn(name = "product_id"))
+    private Set<CategoryId> categoryIds;
+  }
+  ```
+  - 이 매핑은 카테고리 ID 목록을 보관하기 위해 밸류 타입에 대한 컬렉션 매핑을 이용했다.
+  - 이 매핑을 사용하면 다음과 같이 JPQL의 member of 연산자를 이용해서 특정 Category에 속한 Product 목록을 구하는 기능을 구현할 수 있다.
+  ```java
+  @Repository
+  public class JpaProductRepository implements ProductRepository {
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    @Override
+    public List<Product> findByCategoryId(CategoryId categoryId, int page, int size) {
+      TypedQuery<Product> query = entityManager.createQuery(
+        "select p from Product p "+
+        "where :catId member of p.categoryIds order by p.id.id desc",
+        Product.class);
+      query.setParameter("catId", categoryId);
+      query.setFirstResult((page -1 ) * size);
+      query.setMaxResult(size);
+      return query.getResultList();
+    }
+  }
+  ```
+  - 이 코드에서 ':catId member of p.categoryIds'는 categoryIds 컬렉션에 catId로 지정한 값이 존재하는지 여부를 검사하기 위한 검색 조건이다.
+  - 응용 서비스는 이 기능을 사용해서 지정한 카테고리에 속한 Product목록을 구할 수 있다.
+  - JPA를 이용한 모델 매핑에 대한 내용과 컬렉션을 사용할 떄의 성능 관련 문제에 대한 내용은 4장에서 더 자세히 살펴볼 것이다.
+ 
+
+
 </details>
 
 <details> <summary> 6. 애그리거트를 팩토리로 사용하기 </summary>
