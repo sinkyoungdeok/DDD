@@ -2197,3 +2197,28 @@ public class RegisterProductService {
   - 게다가 Product를 생성할 수 있는 조건을 판단할때 Store의 상태를 이용한다.
 
 </details>
+
+
+
+
+# 4. 리포지터리와 모델구현(JPA중심)
+
+<details> <summary> 1. JPA를 이요한 리포지터리 구현 </summary>
+
+</details>
+
+<details> <summary> 2. 매핑 구현 </summary>
+
+</details>
+
+<details> <summary> 3. 애그리거트 로딩 전략 </summary>
+
+</details>
+
+<details> <summary> 4. 애그리거트의 영속성 전파 </summary>
+
+</details>
+
+<details> <summary> 5. 식별자 생성 기능 </summary>
+
+</details>
