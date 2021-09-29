@@ -2203,7 +2203,132 @@ public class RegisterProductService {
 
 # 4. 리포지터리와 모델구현(JPA중심)
 
-<details> <summary> 1. JPA를 이요한 리포지터리 구현 </summary>
+<details> <summary> 1. JPA를 이용한 리포지터리 구현 </summary>
+
+## 1. JPA를 이용한 리포지터리 구현
+
+- 애그리거트를 어떤 저장소에 저장하느냐에 따라 리포지터리를 구현하는 방법이 다르기 때문에 모든 구현 기술에 대해 알아볼 수는 없다.
+- 도메인 모델과 리포지터리를 구현할 때 선호하는 기술을 꼽으면 JPA이다.
+  - 데이터 보관소로 RDBMS를 사용할 때 객체 기반의 도메인 모델과 관계형 데이터 모델 간의 매핑을 처리하는 기술로 ORM 만한 것이 없다.
+
+### 모듈 위치
+
+**DIP에 따라 리포지터리 구현 클래스는 인프라스트럭처 영역에 위치한다.**
+
+![image](https://user-images.githubusercontent.com/28394879/135188186-9fcf66d4-601c-44ce-85fe-94839b3b84ee.png)
+- 2장에서 언급한 것처럼 리포지터리 인터페이스는 애그리거트와 같이 도메인 영역에 속하고, 리포지터리를 구현한 클래스는 인프라스트럭처 영역에 속한다.
+- 즉, 각 타입의 패키지 구성은 위의 그림과 같다. 
+- 팀 표준에 따라 리포지터리 구현 클래스를 domain.impl과 같은 패키지에 위치시키는 경우도 있다. 
+  - 이는 리포지터리 인터페이스와 구현체를 분리하기 위한 타협안 같은 것이지 좋은 설계 원칙을 따르는 것은 아니다.
+  - 가능하면 리포지터리 구현 클래스를 인프라스트럭처 영역에 위치시켜서 인프라스트럭처에 대한 의존을 낮춰야 한다.
+
+### 리포지터리 기본 기능 구현
+- 기본 기능
+  - 아이디로 애그리거트 조회
+  - 애그리거트 저장
+- 기본 기능 인터페이스 
+  ```java
+  public interface OrderRepository {
+    public Order findById(OrderNo no);
+    public void save(Order order);
+  }
+  ```   
+- 인터페이스는 애그리거트 루트를 기준으로 작성한다.
+  - 주문 애그리거트는 Order 루트 엔티티를 비롯해 OrderLine, Orderer, ShippingInfo 등 다양한 객체를 포함하는데, 이 구성요소 중에서 Order 루트 엔티티를 기준으로 리포지터리 인터페이스를 작성한다.
+- 애그리거트를 조회하는 기능의 이름을 지을 때 특별한 규칙은 없지만 널리 사용되는 규칙은 findBy 프로퍼티(프로퍼티 값)의 형식을 사용하는 것이다.
+  - 위 인터페이스의 경우 아이디로 애그리거트를 조회하는 메서드의 이름을 findById()로 지정하였다.
+  - findById()는 아이디에 해당하는 애그리거트가 존재하면 Order를 리턴하고, 존재하지 않으면 null을 리턴한다.
+  - null을 사용하고 싶지 않다면 자바8의 Optional을 이용해서 값을 리턴해도 된다.
+- save() 메서드는 전달받은 애그리거트를 저장한다.
+  - 이 인터페이스를 구현한 클래스는 JPA의 EntityManager를 이용해서 구현한다. 
+  - 스프링 프레임워크에 기반한 리포지터리 구현 클래스는 다음과 같다.
+  ```java
+  @Repository
+  public class JpaOrderRepository implements OrderRepository {
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    @Override
+    public Order findById(OrderNo id) {
+      return entityManager.find(Order.class, id);
+    }
+
+    @Override
+    public void save(Order order) {
+      entityManager.persist(order);
+    }
+  }
+  ``` 
+- 애그리거트를 수정한 결과를 저장소에 반영하는 메서드를 추가할 필요는 없다. 
+  - JPA를 사용하면 트랜잭션 범위에서 변경한 데이터를 자동으로 DB에 반영하기 떄문이다.
+  ```java
+  public class ChangeOrderService {
+    @Transactional
+    public void changeShippingInfo(Orderno no, ShippingInfo newShippingInfo) {
+      Order order = orderRepository.findById(no);
+      if (order == null) throw new OrderNotFoundException();
+      order.changeShippingInfo(newShippingInfo);
+    }
+  }
+  ``` 
+  - 이 코드에서 changeShippingInfo() 메서드는 스프링 프레임워크의 트랜잭션 관리 기능을 통해 트랜잭션 범위에서 실행된다.
+  - 메서드 실행이 끝나면 트랜잭션을 커밋하는데, 이때 JPA는 트랜잭션 범위에서 변경된 객체의 데이터를 DB에 반영하기 위해 UPDATE 쿼리를 실행한다.
+  - order.changeShippingInfo() 메서드의 실행 결과로 애그리거트 내부의 객체가 변경되면 JPA는 변경 데이터를 DB에 반영하기 위해 UPDATE쿼리를 실행한다.
+- 아이디가 아닌 다른 조건으로 애그리거트를 조회해야 하는 경우 findBy 뒤에 조건 대상이 되는 프러퍼티 이름을 붙인다. 
+  - 예) 특정 아이디가 주문한 Order 목록을 구하는 메서드
+  ```java
+  public interface OrderRepository {
+    //...
+    public List<Order> findByOrdererId(String ordererId, int startRow, int size);
+  }
+  ```  
+  - findByOrdererId 메서드는 한 개 이상 Order 객체를 리턴할 수 있으므로 컬렉션 타입 중 하나인 List를 리턴 타입으로 사용했다.
+  - 아이디 외에 다른 조건으로 애그리거트를 조회할 때에는 JPA의 Criteria나 JPQL을 사용한다.
+  - JPQL을 이용한 findByOrdererId() 메서드
+  ```java
+  @Override
+  public List<Order> findByOrdererId(String ordererId, int startRow, int fetchSize) {
+    TypedQuery<Order> query = entityManager.createQuery(
+      "select o from Order o " +
+      "where o.orderer.memberId.id = :ordererId "+
+      "order by o.number.number desc",
+      Order.class);
+      query.setParameter("ordererId", ordererId);
+      query.setFirstResult(startRow);
+      query.setMaxResults(fetchSize);
+      return query.getResultList();
+  }
+  ```  
+- 애그리거트를 삭제하는 기능
+  ```java
+  public interface OrderRepository {
+    //...
+    public void delete(Order order);
+  }
+  ```   
+  - 삭제 기능을 위한 메서드는 삭제할 애그리거트 객체를 파라미터로 전달받는다.
+  - JPA를 이용한 리포지터리 삭제 기능 구현
+  ```java
+  public class JpaOrderRepository implements OrderRepository {
+    @PersistenceContext
+    private EntityManager entityManager;
+    //...
+    @Override
+    public void remove(Order order) {
+      entityManager.remove(order);
+    }
+  }
+  ```  
+
+
+> 삭제 요구사항이 있더라도 여러 이유로 데이터를 실제로 삭제하는 경우는 많지 않다.
+> 관리자 기능에서 삭제한 데이터까지 조회해야 하는 경우도 있고 데이터 원복을 위해 일정 기간 동안 보관해야 할 때도 있기 때문이다.
+> 이런 이유로 사용자가 삭제 기능을 실행할 때 데이터를 바로 삭제하기보다는 삭제 플래그를 사용해서 데이터를 화면에 보여줄지 여부를 결정하는 방식으로 구현한다.
+
+
+
+
+  
 
 </details>
 
