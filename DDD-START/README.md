@@ -2334,6 +2334,436 @@ public class RegisterProductService {
 
 <details> <summary> 2. 매핑 구현 </summary>
 
+## 2. 매핑 구현
+
+### 엔티티와 밸류 기본 매핑 구현
+- 애그리거트와 JPA 매핑을 위한 기본 규칙
+  - 애그리거트 루트는 엔티티이므로 @Entity로 매핑 설정
+  - 한 테이블에 엔티티와 밸류 데이터가 같이 있다면
+    - 밸류는 @Embeddable로 매핑 설정
+    - 밸류 타입 프로퍼티는 @Embedded로 매핑 설정
+- 예) 주문 애그리거트
+  - ![image](https://user-images.githubusercontent.com/28394879/135196129-f15162a0-9038-41c3-b00e-ba002f6529d0.png)
+  - 주문 애그리거트의 루트 엔티티는 Order이고 이 애그리거트에 속한 Orderer와 ShippingInfo는 밸류인데, 이 객체와 ShippingInfo에 포함된 Address 객체와 Receiver객체는 한 테이블에 매핑할 수 있다. 
+  - 루트 엔티티와 루트 엔티티에 속한 밸류는 한 테이블에 매핑될 떄가 많다. 
+  - 주문 애그리거트의 루트 엔티티인 Order는 JPA의 @Entity로 매핑한다.
+  ```java
+  @Entity
+  @Table(name = "purchase_order")
+  public class Order {
+    //...
+  }
+  ``` 
+  - Order에 속하는 Orderer는 밸류이므로 @Embeddable로 매핑한다.
+  ```java
+  @Embeddable
+  public class Orderer {
+    // MemberId에 정의된 컬럼 이름을 변경하기 위해
+    // @AttributeOverride 애노테이션 사용
+    @Embedded
+    @AttributeOverrides (
+      @AttributeOverride(name = "id", column = @Column(name = "orderer_id"))
+    )
+    private MemberId memberId;
+
+    @Column(name = "orderer_name")
+    private String name;
+  }
+  ``` 
+  - Orderer의 memberId는 Member 애그리거트를 ID로 참조한다.
+  - Member의 아이디타입으로 사용되는 MemberId는 다음과 같이 id 프로퍼티와 매핑되는 테이블 칼럼 이름으로 "member_id"를 지정하고 있다.
+  ```java
+  @Embeddable
+  public class MemberId implements Serializable {
+    @Column(name= "member_id")
+    private String id;                             
+  }
+  ``` 
+  - 예시의 그림에서 Orderer의 memberId 프롶퍼티와 매핑되는 칼럼 이름은 'orderer_id' 이므로 MemberId에 설정된 'member_id' 와 이름을 다르게 했다.
+  - @Embeddable 타입에 설정한 칼럼 이름과 실제 칼럼 이름이 다르므로 Orderer의 memberId 프로퍼티를 매핑할 때 @AttributeOverrides 애노테이션을 이용해서 매핑할 칼럼 이름을 변경 했다.
+- JPA 2부터 @Embeddable은 중첩을 허용하므로 밸류인 Orderer가 또 다른 밸류인 MemberId를 포함할 수 있다.
+  - Orderer와 마찬가지로 ShipppingInfo 밸류도 또 다른 밸류인 Address와 Receiver를 포함한다.
+  - Address의 매핑 설정과 다른 칼럼 이름을 위해 @AttributeOverride 애노테이션을 사용한다.
+  ```java
+  @Embeddable
+  public class ShippingInfo {
+    @Embedded
+    @AttributeOverrides{(
+      @AttributeOverride(name = "zipCode", column = @Column(name = "shipping_zipcode")),
+      @AttributeOverride(name = "address1", column = @Column(name = "shipping_addr1")),
+      @AttributeOverride(name = "address2", column = @Column(name = "shipping_addr1"))
+    )}
+    private Address address;
+
+    @Column(name = "shipping_message")
+    private String message;
+
+    @Embedded
+    private Receiver receiver;
+  }
+  ``` 
+  - Order 애그리거트 루트 엔티티는 @Embedded를 이용해서 밸류 타입 프로퍼티를 설정한다.
+  ```java
+  @Entity
+  public class Order {
+    //...
+    @Embedded
+    private Orderer orderer;
+    
+    @Embedded
+    private ShippingInfo shippingInfo;
+  }
+  ``` 
+
+
+### 기본 생성자 
+- 엔티티와 밸류의 생성자는 객체를 생성할 때 필요한 것을 전달 받는다.
+- Receiver 밸류 타입의 경우 생성 시점에 수취인 이름과 연락처를 생성자로 파라미터로 전달 받는다.
+  ```java
+  public class Receiver {
+    private String name;
+    private String phone;
+    
+    public Receiver(String name, String phone) {
+      this.name = name;
+      this.phone = phone;
+    }
+  }
+  //...
+  ```  
+  - Receiver가 불변타입이면 생성 시점에 필요한 값을 모두 전달받으므로 값을 변경하는 set메서드를 제공하지 않는다.
+  - 이는 Receiver 클래스에 (파라미터가 없는) 기본 생성자를 추가할 필요가 없다는 것을 뜻한다.
+  - 하지만 JPA의 @Entity와 @Embeddable로 클래스를 매핑하려면 기본 생성자를 제공해야 한다.
+  - 하이버네이트와 같은 JPA 프로바이더는 DB에서 데이터를 읽어와 매핑된 객체를 생성할 떄 기본 생성자를 사용해서 객체를 생성한다.
+  - 이런 기술적인 제약으로 Receiver와 같은 불변 타입은 기본 생성자가 필요 없음에도 불구하고 기본 생성자를 추가하되, protected로 추가한다.
+  ```java
+  @Embeddable
+  public class Receiver {
+    @Column(name = "receiver_name")
+    private String name;
+    @Column(name = "receiver_phone")
+    private String phone;
+
+    protected Receiver() {} // JPA를 적용하기 위해 기본 생성자 추가 
+
+    public Receiver(String name, String phone) {
+      this.name = name;
+      this.phone = phone;
+    }
+    ..// get 메서드 생략 
+  }
+  ``` 
+  - 기본 생성자는 JPA 프로바이더가 객체를 생성할 때만 사용한다.
+  - 기본 생성자를 다른 코드에서 사용하면 값이 없는 온전하지 못한 객체를 만들게 된다.
+  - 이런 이유로 다른 코드에서 기본 생성자를 사용하지 못하도록 protected로 선언한다. 
+
+> 하이버네이트는 클래스를 상속한 프록시 객체를 이용해서 지연 로딩을 구현한다.
+> 이 경우 프록시 클래스에서 상위 클래스의 기본 생성자를 호출할 수 있어야 하므로 지연 로딩
+> 대상이 되는 @Entity와 @Embeddable의 기본 생성자는 private가 아닌 protected로 지정해야 한다.
+
+### 필드 접근 방식 사용 
+- JPA는 필드와 메서드의 두 가지 방식으로 매핑을 처리할 수 있다. 
+- 메서드 방식을 사용하려면 다음과 같이 프로퍼티를 위한 get/set 메서드를 구현해야 한다.
+```java
+@Entity
+@Access(AccessType.PROPERTY)
+public class Order {
+  
+  @Column(name = "state")
+  @Enumerate(EnumType.STRING) 
+  public OrderState getState() {
+    return state;
+  }
+
+  public void setState(OrderState state) {
+    this.state = state;
+  }
+}
+``` 
+- 엔티티에 프로퍼티를 위한 공개 get/set 메서드를 추가하면 도메인의 의도가 사라지고 객체가 아닌 데이터 기반으로 엔티티를 구현할 가능성이 높아진다.
+  - 특히 set 메서드는 내부 데이터를 외부에서 변경할 수 있는 수단이 되기 떄문에 캡슐화를 깨는 원인이 될 수 있다.
+
+- 엔티티가 객체로서 제 역할을 하려면 외부에 set 메서드 대신 의도가 잘 드러나는 기능을 제공해야 한다.
+  - 상태 변경을 위한 setState() 메서드보다 주문 취소를 위한 cancel() 메서드가 도메인을 더 잘 표현하고, setShippingInfo() 메서드보다 배송지를 변경한다는 의미를 갖는 changeShippingInfo()가 도메인을 잘 표현한다.
+- 밸류 타입을 불변으로 구현하고 싶은 경우 set 메서드 자체가 필요 없는데 JPA의 구현 방식 때문에 공개 set 메서드를 추가하는 것도 좋지 않다.
+- 엔티티를 객체가 제공할 기능 중심으로 구현하도록 유도하려면 JPA 매핑 처리를 프로퍼티 방식이 아닌 필드 방식으로 선택해서 불필요한 get/set 메서드를 구현하지 말아야 한다.
+  ```java
+  @Entity
+  @Access(AccessType.FIELD)
+  public class Order {
+    @EmbeddedId
+    private OrderNo number;
+
+    @Column(name = "state")
+    @Enumerated(EnumType.STRING)
+    private OrderState state;
+
+    ... // cancel(), changeShippingInfo() 등 도메인 기능 구현
+    ... // 필요한 get 메서드 제공 
+  }
+  ``` 
+
+> JPA 구현체인 하이버네이트는 @Accesss를 이용해서 명시적으로 접근 방식을 지정하지 않으면
+> @Id나 @EmbeddedId가 어디에 위치했느냐에 따라 접근 방식을 결정한다.
+> @Id나 @EmbeddedId가 필드에 위치하면 필드 접근 방식을 선택하고, get메서드에 위치하면 메서드 접근 방식을 선택한다. 
+
+### AttributeConverter를 이용한 밸류 매핑 처리
+- int, long, String, LocalDate와 같은 타입은 DB 테이블의 한 개 칼럼과 매핑된다.
+  - 이와 비슷하게 밸류 타입의 프로퍼리르 한 개 칼럼에 매핑해야 할 때도 있다.
+  - 예) Length가 길이 값과 단위의 두 프로퍼티를 갖고 있는데 DB 테이블에는 한 개 칼럼에 '1000mm' 와 같은 형식으로 저장할 수 있다.
+  ```java
+  // 두 프로퍼티로 나누어서 저장 
+  public class Length {
+    private int value;
+    private String unit;
+  }
+
+  // 한개 DB 칼럼에 저장 = WIDTH VARCHAR(20)
+  ``` 
+- 두 개 이상의 프로퍼티를 가진 밸류 타입을 한 개 칼럼에 매핑해야 할 경우 @Embeddable로는 처리할 수 없다.
+  - JPA 2.0 버전에서는 이를 처리하기 위해 다음과 같이 칼럼과 매핑하기 위한 프로퍼티를 따로 추가하고 get/set 메서드에서 실제 밸류 타입과 변환 처리를 해야 한다.
+  ```java
+  public class Product {
+    @Column(name = "WIDTH")
+    private String width;
+
+    public Length getWidth() {
+      return new Width(width); // DB 칼럼 값을 실제 프로퍼티 타입으로 변환
+    }
+
+    void setWidth(Length width) {
+      this.width = width.toString(); // 실제 프로퍼티 타입을 DB 타입 값으로 변환 
+    }
+  }
+  ``` 
+
+  - JPA 2.1 버전에서는 DB 칼럼과 밸류 사이의 변환 코드를 모델에 구현하지 않아도 된다.
+  - 대신 AttributeConverter를 사용해서 변환을 처리할 수 있다.
+  - AttributeConverter는 JPA 2.1 에 추가된 인터페이스로 다음과 같이 밸류 타입과 칼럼 데이터 간의 변환 처리를 위한 기능을 정의하고 있다.
+  ```java
+  package javax.persistence;
+
+  public interface AttributeConverter<X,Y> {
+    public Y convertToDatabaseColumn(X attribute);
+    public X convertToEntityAttribute(Y dbData);
+  }
+  ``` 
+  - 타입 파라미터 X는 밸류 타입이고, Y는 DB 타입이다. 
+  - convertToDatabaseColumn() 메서드는 밸류 타입을 DB 칼럼 값으로 변환하는 기능을 구현하고 convertToEntityAttribute() 메서드는 DB 칼럼 값을 밸류로 변환하는 기능을 구현한다.
+  - Money 밸류 타입을 위한 AttributeConverter는 다음과 같이 구현할 수 있다.
+  ```java
+  @Converter(autoApply = true)
+  public class MoneyConverter implements AttributeConverter<Money, Integer> {
+
+    @Override
+    public Integer convertToDatabaseColumn(Money money) {
+      if (money == null)
+        return null;
+      else
+        return money.getValue();
+    }
+
+    @Override
+    public Money convertToEntityAttribute(Integer value) {
+      if(value == null) return null;
+      else return new Money(value);
+    }
+    
+  }
+  ``` 
+  - AttributeConverter 인터페이스를 구현한 클래스는 @Converter 애노테이션을 적용한다.
+  - `@Converter(autoApply = true)`는 모델에 출현하는 모든 Money 타입의 프로퍼티에 대해서 MoneyConverter를 자동으로 적용한다.
+  - 예) Order의 totalAmounts 프로퍼티는 Money타입인데 이 프로퍼티를 DB total_amounts 칼럼에 매필할 때 MoneyConverter를 사용한다.
+  ```java
+  @Entity
+  @Table(name = "purchase_order")
+  public class Order {
+    //...
+
+    @Column(name = "total_amounts")
+    private Money totalAmounts; // MoneyConverter를 적용해서 값 반환 
+    //...
+  }
+  ```
+  - `@Converter(autoApply = false)`는 기본값인데, 프로퍼티 값을 변환할 때 사용할 컨버터를 직접 지정해야 사용할 수 있다. 
+  ```java
+  public class Order {
+    @Column(name = "total_amounts")
+    @Convert(converter = MoneyConverter.class)
+    private Money totalAmounts;
+  }
+  ``` 
+
+### 밸류 컬렉션: 별도 테이블 매핑
+- Order 엔티티는 한 개 이상의 OrderLine을 가질 수 있다.
+- OrderLine의 순서가 있다면 다음과 같이 List 타입을 이용해서 OrderLine 타입의 컬렉션을 프로퍼티로 갖게된다.
+```java
+public class Order {
+  
+  private List<OrderLine> orderLines;
+  //...
+}
+``` 
+- 밸류 타입의 컬렉션은 별도 테이블에 보관한다. Order와 OrderLine을 위한 테이블은 다음과 같이 매핑할 수 있다. 
+  ![image](https://user-images.githubusercontent.com/28394879/135231195-7dc4888c-ee67-4489-a9a1-9a2c997a1ff9.png)
+  - 밸류 컬렉션을 저장하는 ORDER_LINE 테이블은 외부키를 이용해서 엔티티에 해당하는 PURCHASE_ORDER 테이블을 참조한다.
+  - 이 외부키는 컬렉션이 속할 엔티티를 의미한다.
+  - List 타입의 컬렉션은 인덱스 값이 필요하므로 ORDER_LINE 테이블에는 인덱스 값을 저장하기 위한 칼럼(line_idx)도 존재한다.
+- 밸류 컬렉션을 별도 테이블로 매핑할 때는 @ElementCollection과 @CollectionTable을 함께 사용한다. 관련 매핑 코드는 다음과 같다. 
+```java
+@Entity
+@Table(name = "purchase_order")
+public class Order {
+  //...
+  @ElementCollection
+  @CollectionTable(name = "order_line", 
+    joinColumns = @JoinColumn(name = "order_number"))
+  @OrderColumn(name = "line_idx")
+  private List<OrderLine> orderLines;
+  ...
+}
+
+@Embeddable
+public class OrderLine {
+  @Embedded
+  private ProductId productId;
+  
+  @Column(name = "price")
+  private Money price;
+
+  @Column(name = "quantity")
+  private int quantity;
+  
+  @Column(name = "amounts")
+  private Money amounts;
+
+  ... 
+}
+``` 
+- OrderLine의 매핑을 함께 표시했는데 OrderLine에는 List의 인덱스 값을 저장하기 위한 프로퍼티가 존재하지 않는다.
+  - 그 이유는 List 타입 자체가 인덱스를 갖고 있기 때문이다.
+  - JPA는 @OrderColumn 애노테이션을 이용해서 저장한 칼럼에 리스트의 인덱스 값을 저장한다.
+- @CollectionTable은 밸류를 저장할 테이블을 지정할 때 사용한다. 
+  - name 속성으로 테이블 이름을 지정하고 joinColumns 속성은 외부키로 사용하는 칼럼을 지정한다.
+  - 예제 코드에서는 외부키가 한 개인데, 두 개 이상인 경우 @JoinColumn의 배열을 이용해서 외부키 목록을 지정한다.
+
+### 밸류 컬렉션: 한 개 컬럼 매핑
+- 밸류 컬렉션을 별도 테이블이 아닌 한 개 컬럼에 저장해야 할 때가 있다.
+  - 예) 도메인 모델에는 이메일 주소 목록을 Set으로 보관하고 DB에는 한 개 컬럼에 콤마로 구분해서 저장해야 할 때가 있다. 
+  - 이때 AttributeConverter를 사용하면 밸류 컬렉션을 한 개 컬럼에 쉽게 매핑할 수 있다. 
+  - 단, AttributeConverter를 사용하려면 밸류 컬렉션을 표현하는 새로운 밸류 타입을 추가해야 한다. 
+  - 이메일의 경우 아래 코드 처럼 이메일 집합을 위한 밸류 타입을 추가로 작성해야 한다.
+  ```java
+  public class EmailSet {
+    private Set<Email> emails = new HashSet<>();
+
+    private EmailSet() {}
+    private EmailSet(Set<Email> emails) {
+      this.email.addAll(emails);
+    }
+
+    public set<Email> getEmails() {
+      return Collections.unmodifiableSet(emails);
+    }
+  }
+  ``` 
+  - 밸류 컬렉션을 위한 타입을 추가했다면 AttributeConverter를 구현한다.
+  ```java
+  @Converter
+  public class EmailSetConverter implements AttributeConverter<EmailSet, String> {
+    @Override
+    public String convertToDatabaseColumn(EmailSet attribute) {
+      if(attribute == null) return null;
+
+      return attribute.getEmails().stream().
+          .map(Email::toString)
+          .collect(Collector.joining(","));
+    }
+    @Override
+    public EmailSet convertToEntityAttribute(String dbData) {
+      if(dbData == null) return null;
+      String[] emails = dbData.split(",");
+      Set<Email> emailSet = Arrays.stream(emails)
+          .amp(value -> new Email(value))
+          .collect(toSet());
+      return new EmailSet(emailSet);
+    }
+  }
+  ``` 
+  - 이제 남은 것은 EmailSet 타입의 프로퍼티가 Converter로 EmailSetConverter를 사용하도록 지정하는 것이다.
+  ```java
+  @Column(name = "emails")
+  @Convert(converter = EmailSetConverter.class)
+  private EmailSet emailSet;
+  ``` 
+  
+### 밸류를 이용한 아이디 매핑
+- 식벼랒는 최종적으로 문자열이나 숫자와 같은 기본 타입이기 떄문에 다음과 같이 String이나 Long 타입을 이용해서 식별자를 매핑한다.
+```java
+@Entity
+public class Order {
+  // 기본 타입을 이용한 식별자 매핑
+  @Id
+  private String number;
+  ...
+}
+
+public class Article {
+  @Id
+  private Long id;
+  ... 
+}
+```
+
+- 기본 타입을 사용하는 것이 나쁘진 않지만 식별자라는 의미를 부각시키기 위해 식별자 자체를 별도 밸류 타입으로 만들 수도 있다.
+  - 지금까지 살펴본 예제에서 OrderNo, MemberId 등이 식별자를 표현하기 위해 사용한 밸류 타입이다. 
+  - 밸류타입을 식별자로 매핑하면 @Id 대신 @EmbeddedId 애노테이션을 사용한다. 
+  ```java
+  @Entity
+  @Table(name = "purchase_order")
+  public class Order{
+    @EmbeddedId
+    private OrderNo number;
+    ...
+  }
+
+  @Embeddable
+  public class OrderNo implements Serializable {
+    @Column(name = "order_number")
+    private String number;
+    ...
+  }
+  ``` 
+  - JPA에서 식별자 타입은 Serializable 타입이어야 하므로 식별자로 사용될 밸류 타입은 Serializable 인터페이스를 상속 받아야 한다.
+- 밸류 타입으로 식별자를 구현할 때 얻을 수 있는 장점은 식별자에 기능을 추가할 수 있다는 점이다.
+  - 예) 1세대 시스템의 주문번호와 2세대 시스템의 주문번호를 구분할 때 주문번호의 첫 글자를 이용한다고 해보자.
+  - 이 경우 다음과 같이 OrderNo 클래스에 시스템 세대를 구분할 수 있는 기능을 구현할 수 있다.
+  ```java
+  @Embeddable
+  public class OrderNo implements Serializable {
+    @Column(name = "order_number")
+    private String number;
+    
+    public boolean is2ndGeneration() {
+      return number.startsWith("N");
+    }
+  }
+  ``` 
+  - 시스템 세대 구분이 필요한 코드는 OrderNo가 제공하는 기능을 이용해서 구분하면 된다.
+  ```java
+  if(order.getNumber().is2ndGeneration()) {
+    ...
+  }
+  ``` 
+- JPA는 내부적으로 엔티티를 비교할 목적으로 equals() 메서드와 hashcode()값을 사용하므로 식별자로 사용한 벨류 타입은 이 두 메서드를 알맞게 구현해야 한다. 
+
+### 별도 테이블에 저장하는 밸류 매핑
+
+
+
+
+
+
 </details>
 
 <details> <summary> 3. 애그리거트 로딩 전략 </summary>
