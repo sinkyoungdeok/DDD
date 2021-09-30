@@ -2758,9 +2758,213 @@ public class Article {
 - JPA는 내부적으로 엔티티를 비교할 목적으로 equals() 메서드와 hashcode()값을 사용하므로 식별자로 사용한 벨류 타입은 이 두 메서드를 알맞게 구현해야 한다. 
 
 ### 별도 테이블에 저장하는 밸류 매핑
+- 애그리거트에서 루트 엔티티를 뺀 나머지 구성요소는 대부분 밸류이다. 
+  - 루트 엔티티 외에 또 다른 엔티티가 있다면 진짜 엔티티인지 의심해봐야 한다. 
+  - 단지 별도 테이블에 데이터를 저장한다고 해서 엔티티인 것은 아니다. 
+  - 주문 애그리거트도 OrderLine을 별도 테이블에 저장하지만 OrderLine 자체는 엔티티가 아니라 밸류이다.
+- 밸류가 아니라 엔티티가 확실하다면 다른 애그리거트는 아닌지 확인해야 한다. 
+  - 특히 자신만의 독자적인 라이프사이클을 갖는다면 다른 애그리거트일 가능성이 높다.
+  - 예) 상품 상세화면을 보면 상품 자체에 대한 정보와 고객의 리뷰를 함께 보여주는데, 이를 보고 상품 애그리거트에 고객 리뷰가 포함된다고 생각할 수 있다.
+  - 하지만, Product와 Review는 함께 생성되지 않고, 함께 변경되지도 않는다. 
+  - 게다가 변경 주체도 다르다. 
+  - Review의 변경이 Product에 영향을 주지 않고 반대로 Product의 변경이 Review에 영향을 주지 않기 때문에 Review는 엔티티는 맞지만 리뷰 애그리거트에 속한 엔티티이지 상품 애그리거트에 속한 엔티티는 아니다. 
+- 애그리거트에 속한 객체가 밸류인지 엔티티인지 구분하는 방법은 고유 식별자를 갖는지 여부를 확인하는 것이다.
+  - 하지만, 식별자를 찾을 때 매핑되는 테이블의 식별자를 애그리거트 구성요소의 식별자와 동일한 것으로 착각하면 안 된다. 
+  - 별도 테이블로 저장되고 테이블에 PK가 있다고 해서 테이블과 매핑되는 애그리거트 구성요소가 고유 식별자를 갖는 것은 아니다. 
+  - 예) 게시글 데이터를 ARTICLE 테이블과 ARTICLE_CONTENT 테이블로 나눠서 저장할때 
+  - 밸류를 엔티티로 잘못 매핑한 예 
+  ![image](https://user-images.githubusercontent.com/28394879/135374950-e169540b-eb28-4f52-8e91-46d2e0a665bf.png)
+  - 위의 그림만 보면 ARTICLE_CONTENT 테이블의 ID 칼럼이 식별자이므로 ARTICLE_CONTENT와 매핑되는 ArticleContent를 엔티티로 생각할 수 있는데, 이것 때문에 Article과 ArticleContent를 두 엔티티 간의 일대일 연관으로 매핑하는 실수를 할 수 있다.
+- ArticleContent를 엔티티로 생각할 수 있지만 ArticleContent는 Article의 내용을 담고 있는 밸류로 생각하는 것이 맞다. 
+  - ARTICLE_CONTENT의 ID는 식별자이기는 하지만 이 식별자를 사용하는 이유는 ARTICLE 테이블의 데이터와 연결하기 위함이지 ARTICLE_CONTENT를 위한 별도 식별자가 필요하기 때문은 아니다.
+  - 즉, 이는 게시글의 특정 프로퍼티를 별도 테이블에 보관한 것으로 접근해야 한다.
+  - ArticleContent를 밸류로 보고 접근하면 모델은 다음과 같이 바뀐다. 
+  ![image](https://user-images.githubusercontent.com/28394879/135376675-5e362787-ba6c-454e-8707-4fd08af09398.png)
+- ArticleContent는 밸류이므로 @Embeddable로 매핑한다. 
+  - ArticleContent와 매핑되는 테이블은 Article과 매핑되는 테이브로가 다른데, 이때 밸류를 매핑한 테이블을 지정하기 위해 @SecondaryTable과 @AttributeOverride를 사용한다. 
+  ```java
+  @Entity
+  @Table(name = "article")
+  @SecondaryTable(
+    name = "article_content",
+    pkJoinColumns = @PrimaryKeyJoinColumn(name = "id")
+  )
+  public class Article {
+    @Id
+    private Long id;
+    private String title;
+    ...
+    @AttributeOverrides({
+      @AttributeOverride(name = "content",
+        column = @Column(table = "article_content")),
+      @AttributeOverride(name = "contentType",
+        column = @Column(table = "article_content"))))
+    })
+    private ArticleContent content;
+  }
+  ``` 
+  - @SecondaryTable의 name 속성은 밸류를 저장할 테이블을 지정한다.
+  - pkJoinColumns 속성은 밸류 테이블에서 엔티티 테이블로 조인할 때 사용할 칼럼을 지정한다.
+  - content 필드에 @AttributeOverride를 적용했는데 이 애노테이션을 사용해서 해당밸류 데이터가 저장된 테이블 이름을 지정한다.
+  - @SecondaryTable을 이용하면 아래 코드를 실행할 때 두 테이블을 조인해서 데이터를 조회한다.
+  ```java
+  // @SecondaryTable로 매핑된 article_content 테이블을 조인
+  Article article = entityManager.find(Article.class, 1L);
+  ``` 
+  - 게시글 목록을 보여주는 화면은 article 테이블의 데이터만 필요하지, article_content 테이블의 데이터는 필요하지 않다.
+  - 그런데, @SecondaryTable을 사용하면 목록 화면에 보여줄 Article을 조회할 때 article_content 테이블까지 조인해서 데이터를 읽어오는데 이는 원하는 결과가 아니다. 
+  - 이 문제를 해소하고자 ArticleContent를 엔티티로 매핑하고 Article에서 ArticleContent로의 지연 로딩 방식으로 설정할 수도 있다. 
+  - 하지만 이 방식은 엔티티가 아닌 모델을 엔티티로 만드는 것이므로 좋은 방법은 아니다. 
+  - 대신 조회 전용 기능을 구현하는 방법을 사용하는 것이 좋다.
+  - JPA에서 조회 전용 쿼리를 실행하는 방법은 5장에서 살펴본다.
+ 
+### 밸류 컬렉션을 @Entity로 매핑하기
+- 개념적으로 밸류인데 구현 기술의 한계나 팀 표준 때문에 @Entity를 사용해야 할 때도 있다.
+  - 예) 제품의 이미지 업로드 방식에 따라 이미지 경로와 썸네일 이미지 제공 여부가 달라질 때
+  ![image](https://user-images.githubusercontent.com/28394879/135393333-0e0e8db3-dd51-48b7-863b-c9834bd613bd.png)
+  - JPA는 @Embeddable 타입의 클래스 상속 매핑을 지원하지 않는다. 
+  - 따라서 상속 구조를 갖는 밸류 타입을 사용하려면 @Embeddable 대신 @Entity를 이용한 상속 매핑으로 처리해야 한다.
+  - 밸류 타입을 @Entity로 매핑하므로 식별잘 매핑을 위한 필드도 추가해야 한다.
+  - 또한, 구현 클래스를 구분하기 위한 타입 식별(discriminator) 칼럼을 추가해야 한다.
+  - 이를 위한 테이블 설계는 다음과 같다. 
+  ![image](https://user-images.githubusercontent.com/28394879/135394323-71a1aaa0-62ac-4951-968a-a5c2f24d07be.png) 
+  - 한 테이블에 Image 및 하위 클래스를 매핑하므로 Image 클래스에 @Inheritance를 적용하고 strategy 값으로 SINGLE_TABLE을 사용하고, @DiscriminatorColumn을 이용해서 타입을 구분하는 용도로 사용할 칼럼을 지정한다. 
+  - Image를 @Entity로 매핑했지만 모델에서 Image는 엔티티가 아니라 밸류이므로 다음과 같이 상태를 변경하는 기능은 추가하지 않는다. 
+  ```java
+  @Entity
+  @Inheritance(strategy = InheritanceType.SINGLE_TABLE)
+  @DiscriminatorColumn(name = "image_type")
+  @Table(name = "image")
+  public abstract class Image {
+    @Id
+    @GeneratedValue(strategy = GeneratedType.IDENTITY)
+    @Column(name = "image_id")
+    private Long id;
 
+    @Column(name = "image_path")
+    private String path;
 
+    @Temporal(TemporalType.TIMESTAMP)
+    @Column(name = "upload_time")
+    private Date uploadTime;
 
+    protected Image() {}
+    public Image(String path) {
+      this.path = path;
+      this.uploadTime = new Date();
+    }
+
+    protected String getPath() {
+      return path;
+    }
+
+    public Date getUploadTime() {
+      return uploadTime;
+    }
+
+    public abstract String getURL();
+    public abstract boolean hasthumbnail();
+    public abstract String getThumbnailURL();
+  }
+  ``` 
+  - Image를 상속받은 클래스는 다음과 같이 @Entity와 @Discriminator를 사용해서 매핑을 설정한다.
+  ```java
+  @Entity
+  @DiscriminatorValue("II")
+  public class InternalImage extends Image {
+    ... 
+  }
+
+  @Entity
+  @DiscriminatorValue("EI")
+  public class ExternalImage extends Image {
+    ... 
+  }
+  ```
+
+  ```java
+  @Entity
+  @Table(name = "product")
+  public class Product {
+    @EmbeddedId
+    private ProductId id;
+    private String name;
+
+    @Convert(converter = MoneyConverter.class)
+    private Money price;
+    private String detail;
+
+    @OneToMany(cascade = {CascadeType.PERSIST, CascadeType.REMOVE}, orphanRemoval = true)
+    @JoinColumn(name = "product_it")
+    @OrderColumn(name = "list_idx")
+    private List<Image> images = new ArrayList<>();
+    ...
+    public void changeImages(List<Image> newImages) {
+      images.clear();
+      images.addAll(newImages);
+    }
+  }
+  ```
+
+  - Image가 @Entity이므로 목록을 담고 있는 Product는 @OneToMany를 이용해서 매핑을 처리 한다. 
+  - Image는 밸류이므로 독자적인 라이프사이클을 갖지 않고 Product에 완전히 의존한다.
+  - 따라서 cascade 속성을 이용해서 Product를 저장할 때 함께 저장되고, Product를 삭제 할때 함께 삭제되도록 설정한다. 
+  - 리스트에서 Image 객체를 제거하면 DB에서 함께 삭제되도록 orphanRemoval 도 true로 설정한다.
+  - `changeImages()`: 이미지 교체를 위해 clear() 메서드를 사용한다.
+  - @Entity에 대한 @OneToMany 매핑에서 컬렉션의 clear() 메서드를 호출하면 삭제 과정이 효율적이지 않을 수 있다.
+  - 예) 하이버네이터의 경우 @Entity를 위한 컬렉션 객체의 clear() 메서드를 호출하면 select 쿼리로 대상 엔티티를 로딩하고, 각 개별 엔티티에 대해 delete 쿼리를 실행한다.
+  - 즉, images에 보관되어 있던 Image 개수가 4개면 changeImages를 실행 할때 Image 목록을 가져오기 위한 한 번의 `select * from image where product_id=?` 쿼리(물론, 이미 로딩했으면 select는 생략)와 각 Image를 삭제하기 위한 네 번의 쿼리 `delete image where image_id = ?` 쿼리를 실행한다.
+  - 변경 빈도가 낮으면 괜찮지만 빈도가 높으면 전체 서비스 성능에 문제가 될 수 있다.
+- 하이버네이트는 @Embeddable 타입에 대한 컬렉션의 clear() 메서드를 호출하면 컬렉션에 속한 객체를 로딩하지 않고 한 번의 delete 쿼리로 삭제 처리를 수행한다.
+  - 따라서, 애그리거트의 특성을 유지하면서 이 문제를 해소하려면 결국 상속을 포기하고 @Embeddable로 매핑된 단일 클래스로 구현해야 한다. 
+  - 물론, 이 경우 타입에 따라 다른 기능을 구현하려면 다음과 같이 if-else를 써야 하는 단점이 발생한다.
+  ```java
+  @Embeddable
+  public class Image {
+    @Column(name = "image_type")
+    private String imageType;
+    @Column(name = "image_path")
+    private String path;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    @Column(name = "upload_time")
+    private Date uploadTime;
+    ...
+
+    public boolean hasThumbnail() {
+      // 성능을 위해 다형을 포기하고 if-else로 구현 
+      if(imageType.equals("II")) {
+        return true;
+      } else {
+        return false;
+      }
+    }
+  }
+  ``` 
+
+### ID 참조와 조인 테이블을 이용한 단방향 M:N매핑 
+- 앞서 3장에서 애그리거트 간 집합 연관은 성능상의 이유로 피해야 한다고 했다.
+  - 그럼에도 불구하고 요구사항을 구현하는 데 집합 연관을 사용하는 것이 유리하다면 ID 참조를 이용한 단방향 집합 연관을 적용해 볼 수 있다.
+  - 이미 3장에서 이와 관련 된 매핑 예를 보여준 바 있다.
+  ```java
+  @Entity
+  @Table(name = "product")
+  public class Product {
+    @EmbeddedId
+    private ProductId id;
+    
+    @ElementCollection
+    @CollectionTable(name = "product_catergory",
+        joinColumns = @JoinColumn(name = "product_id"))
+    private Set<CategoryId> categoryIds;
+  }
+  ``` 
+  - 이 코드는 Product에서 Category로의 단방향 M:N 연관을 ID 참조 방식으로 구현한 것이다.
+  - ID 참조를 이용한 애그리거트 간 단방향 M:N 연관은 밸류 컬렉션 매핑과 동일한 방식으로 설정한 것을 알 수 있다.
+  - 차이점이 있다면, 집합의 값에 밸류 대신 연관을 맺는 식별자가 온다는 것이다. 
+  - @ElementCollection을 이용하기 떄문에 Product를 삭제할 때 매핑에 사용한 조인 테이블의 데이터도 함께 삭제된다.
+  - 애그리거트를 직접 참조하는 방식을 사용했다면 영속성 전파나 로딩 전략을 고민해야 하는데 ID 참조 방식을 사용함으로써 이런 고민을 할 필요가 없다. 
+ 
 
 
 
