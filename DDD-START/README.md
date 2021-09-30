@@ -2972,6 +2972,114 @@ public class Article {
 
 <details> <summary> 3. 애그리거트 로딩 전략 </summary>
 
+## 3. 애그리거트 로딩 전략
+
+- JPA 매핑을 설정할 때 항상 기억해야 할 점은 애그리거트에 속한 객체가 모두 모여야 완전한 하나가 된다는 것이다.
+  - 즉, 다음과 같이 애그리거트 루트를 로딩하면 루트에 속한 모든 객체가 완전한 상태여야 함을 의미한다.
+  ```java
+  // product는 완전한 하나여야 한다.
+  Product product = productRepository.findById(id);
+  ``` 
+
+- 조회 시점에서 애그리거트를 완전한 상태가 되도록 하려면 애그리거트 루트에서 연관 매핑의 조회 방식을 즉시 로딩(FetchType.EAGER)으로 설정하면 된다. 
+  - 즉, 다음과 같이 컬렉션이나 @Entity에 대한 매핑의 fetch 속성을 즉시 로딩(FetchType.EAGER)으로 설정하면 EntityManager#find() 메서드로 애그리거트 루트를 구할 떄 연관된 구성요소를 DB에서 함께 읽어온다.
+  ```java
+  // @Entity 컬렉션에 대한 즉시 로딩 설정 
+  @OneToMany(cascade = {CascadeType.PERSIST, CascadeType.REMOVE},
+      orpahnRemoval = true, fetch = FetchType.EAGER)
+  @JoinColumn(name = "product_id")
+  @OrderColumn(name = "list_idx")
+  private List<Image> images = new ArrayList<>();
+
+  // @Embeddable 컬렉션에 대한 즉시 로딩 설정 
+  @ElementCollection(fetch = FetchType.EAGER)
+  @CollectionTable(name = "order_line",
+      joinColumns = @JoinColumn(name = "order_number"))
+  @OrderColumn(name = "line_idx")
+  private List<OrderLine> orderLines;
+  ``` 
+- 즉시 로딩 방식으로 설정하면 애그리거트 루트를 로딩하는 시점에 애그리거트에 속한 모든 객체를 함께 로딩할 수 있는 장점이 있지만, 이 장점이 항상 좋은 것은 아니다. 
+  - 특히, 컬렉션에 대해 로딩 전략을 FetchType.EAGER로 설정하면 오히려 즉시 로딩 방식이 문제가 될 수 있다.
+  - 예) Product 애그리거트 루트가 @Entity로 구현한 Image와 @Embeddable로 구현한 Option 목록을 갖고 있을 때
+  ```java
+  @Entity
+  @Table(name = "product")
+  public class Product {
+    ...
+    @OneToMany(
+      cascade = {CascadeType.PERSIST, CascadeType.REMOVE},
+      orphanRemoval = true,
+      fetch = FetchType.EAGER)
+    @JoinColumn(name = "product_id")
+    @OrderColumn(name = "list_idx")
+    private List<Image> images = new ArrayList<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "product_option",
+        joinColumns = @JoinColumn(name = "product_id"))
+    @OrderColumn(name = "list_idx")
+    private List<Option> options = new ArrayList<>();
+  }
+  ``` 
+  - 이 매핑을 사용할 때 EntityManager#find() 메서드로 Product를 조회하면 하이버네이트는 다음과 같이 Product를 위한 테이블, Image를 위한 테이블, Option을 위한 테이블을 조인한 쿼리를 실행한다.
+  ```
+  select
+    p.product_id, ... image.product_id, img.image_id, img.list_idx, img.image_id, ...,
+    opt.product_id, opt.option_title, opt.option_value, opt.list_idx
+  from
+    product p
+    left outer join image img on p.product_id = img.product_id
+    left outer join product_option opt on p.product_id = opt.product_id
+  where p.product_id=?
+  ``` 
+  - 이 쿼리는 카타시안 조인을 사용하는데 이는 쿼리 결과에 중복을 발생시킨다.
+  - 조회하는 Product의 image가 2개이고 option이 2개이면 위 쿼리 결과로 구해지는 행 개수는 4개이다.
+  - 즉, product 테이블의 정보는 4번 중복되고 image와 product_option테이블의 정보는 2번 중복된다.
+- 물론, 하이버네이트가 중복된 데이터를 알맞게 제거해서 실제 메모리에는 1개의 Product 객체, 2개의 Image 객체, 2개의 Option 객체로 변환해 주지만 애그리거트가 커지면 문제가 될 수 있다.
+  - 만약 한 개 제품에 대한 이미지가 20개 이고, Option이 15개이면 EntityManager#find() 메서드가 실행하는 쿼리는 250행을 리턴한다. 
+  - 실제 필요한 행 개수가 36(1+20+15)개인 것에 비하면 250개는 과도하게 많다. 
+  - 보통 조회 성능 문제 때문에 즉시 로딩 방식을 사용하지만 이 경우에는 오히려 즉시 로딩 방식 때문에 조회 성능이 나빠지는 문제가 발생한다.
+- 애그리거트는 개념적으로 하나여야 한다.
+  - 하지만, 루트 엔티티를 로딩하는 시점에 애그리거트에 속한 객체를 모두 로딩해야 하는 것은 아니다.
+  - 애그리거트가 완전해야 하는 이유는 두가지 정도로 생각해 볼 수 있다.
+  - 첫번째) 상태를 변경하는 기능을 실행할 때 애그리거트 상태가 완전해야 한다
+  - 두번째) 표현 영역에서 애그리거트의 상태 정보를 보여줄 때 필요하기 떄문
+  - 이 중 두 번째는 별도의 조회 전용 기능을 구현하는 방식을 사용하는 것이 유리할 때가 많기 떄문에 애그리거트의 완전한 로딩과 관련된 문제는 상태 변경과 더 관련이 있다.
+  - 상태 변경 기능을 실행하기 위해 조회 시점에 즉시 로딩을 이용해서 애그리거트를 완전한 상태로 로딩할 필요는 없다.
+  - JPA는 트랜잭션 범위 내에서 지연 로딩을 허용하기 때문에 다음 코드처럼 실제로 상태를 변경하는 시점에 필요한 구성요소만 로딩해도 문제가 되지 않는다. 
+  ```java
+  @Transactional
+  public void removeOptions(ProductId id, int optIdxToBeDeleted) {
+    // Product를 로딩, 컬렉션은 지연 로딩으로 선정했다면, Option은 로딩하지 않음
+    Product product = productRepository.findById(id);
+    // 트랜잭션 범위이므로 지연 로딩으로 설정한 연관 로딩 가능
+    product.removeOption(optIdxToBeDeleted);
+  }
+  ``` 
+  ```java
+  @Entity
+  public class Product{
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "product_option", 
+        joinColumns = @JoinColumn(name = "product_id"))
+    @OrderColumn(name = "list_idx")
+    private List<Option> options = new ArrayList<>();
+
+    public void removeoption(int optIdx) {
+      // 실제 컬렉션에 접근할 때 로딩
+      this.options.remove(optIdx);
+    }
+  }
+  ```
+  - 게다가 일반적인 애플리케이션은 상태를 변경하는 기능을 실행하는 빈도보다 조회하는 기능을 실행하는 빈도가 훨씬 높다.
+  - 그러므로 상태 변경을 위해 지연 로딩을 사용할 때 발생하는 추가 쿼리로 인한 실행 속도 저하는 문제가 되지 않는다.
+- 이런 이유로 애그리거트 내의 모든 연관을 즉시 로딩으로 설정할 필요는 없다.
+  - 지연 로딩은 동작 방식이 항상 동일하기 때문에 즉시 로딩처럼 경우의 수를 따질 필요가 없는 장점이 있다.(즉시 로딩 설정은 @Entity나 @embeddable에 대해 다르게 동작하고, JPA 프로바이더에 따라 구현 방식이 다를 수 있다).
+  - 물론, 지연 로딩은 즉시 로딩보다 쿼리 실행 횟수가 많아질 가능성이 더 높다.
+  - 따라서, 무조건 즉시 로딩이나 지연 로딩으로만 설정하기보다는 애그리거트에 맞게 즉시 로딩과 지연 로딩을 선택해야 한다. 
+
+   
+
 </details>
 
 <details> <summary> 4. 애그리거트의 영속성 전파 </summary>
