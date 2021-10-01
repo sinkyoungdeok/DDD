@@ -3084,6 +3084,23 @@ public class Article {
 
 <details> <summary> 4. 애그리거트의 영속성 전파 </summary>
 
+## 4. 애그리거트의 영속성 전파
+
+- 애그리거트가 완전한 상태여야 한다는 것은 애그리거트 루트를 조회할 때뿐만 아니라 저장하고 삭제할 때도 하나로 처리해야 함을 의미한다. 
+  - 저장 메서드는 애그리거트 루트만 저장하면 안 되고 애그리거트에 속한 모든 객체를 저장해야 한다. 
+  - 삭제 메서드는 애그리거트 루트뿐만 아니라 애그리거트에 속한 모든 객체를 삭제해야 한다.
+- @Embeddable 매핑 타입의 경우 함께 저장되고 삭제되므로 cascade 속성을 추가로 설정하지 않아도 된다.
+- 반면에 애그리거트에 속한 @Entity 타입에 대한 매핑은 cascade 속성을 사용해서 저장과 삭제 시에 함께 처리되도록 설정해야 한다. 
+  - @OneToOne, @OneToMany는 cascade 속성의 기본값이 없으므로 다음 코드 처럼 cascade 속성 값으로 CascadeType.PERSIST, CascadeType.REMOVE를 설정한다.
+  ```java
+  @OneToMany(cascade = {CascadeType.PERSIST, CascadeType.REMOVE},
+    orphanRemoval = true)
+  @JoinColumn(name = "product_id")
+  @OrderColumn(name = "list_idx")
+  private List<Image> images = new ArrayList<>();
+  ``` 
+
+
 </details>
 
 <details> <summary> 5. 식별자 생성 기능 </summary>
