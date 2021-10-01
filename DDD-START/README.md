@@ -3208,3 +3208,11 @@ public class Article {
 
 
 </details>
+
+
+
+# 7. 도메인 서비스 
+
+<details> <summary> 1. 도메인 서비스 </summary>
+
+</details>
