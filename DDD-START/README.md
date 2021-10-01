@@ -3105,4 +3105,106 @@ public class Article {
 
 <details> <summary> 5. 식별자 생성 기능 </summary>
 
+## 5. 식별자 생성 기능
+
+- 식별자는 크게 세 가지 방식 중 하나로 생성한다.
+  - 사용자가 직접 생성
+  - 도메인 로직으로 생성
+  - DB를 이용한 일련번호 사용
+
+### 사용자가 직접 생성 
+- 이메일 주소처럼 사용자가 직접 식별자를 입력하는 경우는 식별자 생성 주체가 사용자이기 떄문에 도메인 영역에 식별자 생성 기능을 구현할 필요가 없다.
+
+### 도메인 로직으로 생성
+- 식별자 생성 규칙이 있는 경우 엔티티를 생성할 때 이미 생성한 식별자를 전달하므로 엔티티가 식별자 생성 기능을 제공하는 것보다는 별도 서비스로 식별자 생성 기능을 분리해야 한다.
+  - 식별자 생성 규칙은 도메인 규칙이므로 도메인 영역에 식별자 생성 기능을 위치 시켜야 한다.
+  - 예) 다음과 같은 도메인 서비스를 도메인 영역에 위치시킬 수 있다.
+  ```java
+  public class ProductIdService {
+    public ProductId nextId() {
+      ... // 정해진 규칙으로 식별자 생성
+    }
+  }
+  ``` 
+  - 응용 서비스는 이 도메인 서비스를 이용해서 식별자를 구하고 엔티티를 생성할 것이다.
+  ```java
+  public class CreateProductService {
+    @Autowired private ProductIdService idService;
+    @Autowired private ProductRepository productRepository;
+
+    @Transactional
+    public ProductId createProduct(ProductCreationCommand cmd) {
+      // 응용 서비스는 도메인 서비스를 이용해서 식별자를 생성
+      ProductId id = productIdService.nextId();
+      Product product = new Product(id, cmd.getDetail(), cmd.getPrice(), ...);
+      productRepository.save(product);
+      return id;
+    }
+  }
+  ``` 
+- 특정 값의 조합으로 식별자가 생성되는 것 역시 규칙이므로 도메인 서비스를 이용해서 식별자를 생성할 수 있다.
+  - 예) 주문번호를 고객 ID와 타임스탬프로 구성한다고 할 경우 다음과 같은 도메인 서비스를 구현할 수 있다.
+  ```java
+  public class OrderIdService {
+    public OrderId createId(UserId userId) {
+      if (userId == null)
+        throw new IllegalArgumentException("invalid userid: " + userId);
+
+        return new OrderId(userId.toString() + "-" + timestamp());
+    }
+
+    private String timeStamp() {
+      return Long.toString(System.currentTimeMillis());
+    }
+  }
+  ``` 
+
+### DB를 이용한 일련번호 사용
+- 식별자 생성 규칙을 구현하기에 적합한 또 다른 장소는 리포지터리이다.
+  - 다음과 같이 리포지터리 인터페이스에 식별자를 생성하는 메서드를 추가하고 리포지터리 구현 클래스에서 알맞게 구현하면 된다.
+  ```java
+  public interface ProductRepository {
+    ... // save() 등 다른 메서드
+
+    // 식별자를 생성하는 메서드
+    ProductId nextId();
+  }
+  ```
+  - 식별자 생성으로 DB의 자동 증가 칼럼을 사용할 경우 JPA의 식별자 매핑에서 @GeneratedValue를 사용한다.
+  ```java
+  @Entity
+  @Table(name = "article")
+  ...
+  public class Article {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    public Long getId() {
+      return id;
+    }
+  }
+  ```
+- 자동 증가 칼럼은 DB의 insert 쿼리를 실행해야 식별자가 생성되므로 도메인 객체를 리포지터리에 저장할 때 식별자가 생성된다.
+  - 이 이야기는 도메인 객체를 생성하는 시점에서 식별자를 알 수 없고 도메인 객체를 저장한 뒤에 식별자를 구할 수 있음을 의미한다.
+  ```java
+  public class WriteArticleService {
+    private ArticleRepository articleRepository;
+
+    public Long write(NewArticleRequest req) {
+      Article article = new Article("제목", new ArticleContent("content", "type"));
+      articleRepository.save(article); // EntityManager#save()
+                                      // 실행 시점에 식별자 생성
+      return article.getId();
+    }
+  }
+  ``` 
+  - JPA는 저장 시점에 생성한 식별자를 @Id로 매핑한 프로퍼티/필드에 할당한다. 
+  - 따라서 위 코드 처럼 저장 이후에 엔티티의 식별자를 사용할 수 있다.
+- 자동 증가 칼럼 외에 JPA의 식별자 생성 기능을 사용하는 경우에도 마찬가지로 저장 시점에 식별자를 생성한다. 
+    
+
+  
+
+
 </details>
