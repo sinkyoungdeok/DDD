@@ -3412,3 +3412,25 @@ public class Article {
 
 
 </details>
+
+
+
+
+
+# 8.애그리거트 트랜잭션 관리 
+
+<details> <summary> 1. 애그리거트와 트랜잭션 </summary>
+
+</details>
+
+<details> <summary> 2. 선점 잠금 </summary>
+
+</details>
+
+<details> <summary> 3. 비선점 잠금 </summary>
+
+</details>
+
+<details> <summary> 4. 오프라인 선점 잠금 </summary>
+
+</details>
