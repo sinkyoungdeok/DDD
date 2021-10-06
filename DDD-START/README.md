@@ -3509,6 +3509,216 @@ public class Article {
 
 <details> <summary> 3. 비선점 잠금 </summary>
 
+## 3. 비선점 잠금
+
+- 선점 잠금이 강력해 보이긴 하지만 선점 잠금으로 모든 트랜잭션 충돌 문제가 해결되는 것은 아니다. 
+  ![image](https://user-images.githubusercontent.com/28394879/136135821-3551cc48-9a9a-4b74-a33e-6ad6c94c19ae.png) 
+  - 위 그림은 선점잠금으로 해결할 수 없는 상황이다.
+- 위 그림의 실행순서는 다음과 같다.
+  1. 운영자는 배송을 위해 주문 정보를 조회한다. 시스템은 정보를 제공한다.
+  2. 고객이 배송지 변경을 위해 변경 폼을 요청한다. 시스템은 변경 폼을 제공한다.
+  3. 고객이 새로운 배송지를 입력하고 폼을 전송해서 배송지를 변경한다.
+  4. 운영자가 1번에서 조회한 주문 정보를 기준으로 배송지를 정하고 배송 상태 변경을 요청한다.
+
+- 여기서 문제는 운영자가 배송지 정보를 조회하고 배송 상태로 변경하는 사이에 고객이 배송지를 변경하는 것이다.
+  - 운영자는 고객이 변경하기 전의 배송지 정보를 이용해서 배송 준비를 한 뒤에 배송 상태로 변경하게 된다.
+  - 즉, 배송 상태 변경 전에 배송지를 한 번 더 확인하지 않으면 운영자는 다른 배송지로 물건을 발송하게 되고, 고객은 배송지를 변경했음에도 불구하고 엉뚱한 곳으로 주문한 물건을 받는 상황이 발생한다.
+- 이 문제는 선점 잠금 방식으로는 해결할 수 없는데, 이때 필요한 것이 비선점 잠금(Optimistic Lock)이다.
+  - 비선점 잠금 방식은 잠금을 해서 동시에 접근하는 것을 막는 대신 변경한 데이터를 실제 DBMS에 반영하는 시점에 변경 가능 여부를 확인하는 방식이다.
+- 비선점 잠금을 구현하려면 애그리거트에 버전으로 사용할 숫자 타입의 프로퍼티를 추가해야 한다.
+  - 애그리거트를 수정할 때 마다 버전으로 사용할 프로퍼티의 값이 1씩 증가하는데, 이때 다음과 같은 쿼리를 사용한다.
+  ```
+  UPDATE aggtable SET version = version + 1, colx = ?, coly = ? WHERE aggid = ? and version = 현재 버전 
+  ``` 
+- 이 쿼리는 수정할 애그리거트와 매핑되는 테이블의 버전 값이 현재 애그리거트의 버전과 동일한 경우에만 데이터를 수정한다.
+  - 그리고 수정에 성공하면 버전 값을 1 증가시킨다.
+  - 따라서, 다른 트랜잭션이 먼저 데이터를 수정해서 버전 값이 바뀌면 데이터 수정에 실패하게 된다.
+  - 이를 그림으로 표현하는 아래그림과 같다.
+  ![image](https://user-images.githubusercontent.com/28394879/136137351-3b056eb4-152d-43e6-a0eb-da236edb6e4b.png)
+
+- 위의 그림에서 스레드1과 스레드2는 같은 버전을 갖는 애그리거트를 읽어와 수정하고 있다.
+  - 두 스레드 중 스레드1이 먼저 커밋을 시도한다.
+  - 이 시점에 애그리거트의 버전은 여전히 5이므로 애그리거트 수정에 성공하고 버전은 6이 된다.
+  - 스레드1이 트랜잭션을 커밋한 후에 스레드2가 커밋을 시도하는데, 이미 애그리거트 버전이 6이므로 스레드2는 데이터 수정에 실패하게 된다. 
+- JPA는 버전을 이용한 비선점 잠금 기능을 지원한다.
+  - 다음과 같이 버전으로 사용할 필드에 @Version 애노테이션을 붙이고 매핑되는 테이블에 버전을 저장할 칼럼을 추가하기만 하면 된다.
+  ```java
+  @Entity
+  @Table(name = "purchase_order")
+  @Access(AccessType.FIELD)
+  public class Order {
+    @EmbeddedId
+    private OrderNo number;
+
+    @Version
+    private long version;
+  }
+  ```
+
+- JPA는 엔티티가 변경되어 UPDATE 쿼리를 실행할 때 @Version에 명시한 필드를 이용해서 비선점 잠금 쿼리를 실행한다.
+  - 즉, 애그리거트 객체의 버전이 10이면 UPDATE 쿼리를 실행할 때 다음과 같이 쿼리를 사용해서 버전이 일치하는 경우에만 데이터를 수정한다.
+  ```
+  UPDATE purchase_order SET ...생략, version = version +1
+  WHERE number = ? and version = 10
+  ``` 
+
+- 응용 서비스는 버전에 대해 알 필요가 없다.
+  - 리포지터리에서 필요한 애그리거트를 구하고 알맞은 기능만 실행하면 된다.
+  - 기능을 실행하는 과정에서 애그리거트의 데이터가 변경되면 JPA는 트랜잭션 종료 시점에 비선점 잠금을 위한 쿼리를 실행한다.
+
+
+
+```java
+public class ChangeShippingService {
+  
+  @Transactional
+  public void changeShipping(ChangeShippingRequest changeReq) {
+    Order order = orderRepository.findById(new OrderNo(changeReq.getNum()));
+    checkNoOrder(order);
+    order.changeShippingInfo(changeReq.getShippingInfo());
+  }
+}
+``` 
+- 비선점 잠금을 위한 쿼리를 실행할 때 쿼리 실행 결과로 수정된 행의 개수가 0이면 이미 누군가 앞서 데이터를 수정한 것이다.
+  - 이는 트랜잭션이 충돌한 것이므로 트랜잭션 종료 시점에 익셉션이 발생한다.
+  - 위 코드의 경우 스프링의 @Transactional을 이용해서 트랜잭션 범위를 정했으므로 changeShipping() 메서드가 리턴될 때 트랜잭션이 종료되고, 이 시점에 트랜잭션 충돌이 발생하면 OptimisticLockingFailureException을 발생시킨다. 
+- 표현 영역의 코드는 이 익셉션의 발생 여부에 따라 트랜잭션 충돌이 일어났는지 확인할 수 있다.
+  ```java
+  @Controller
+  public class OrderController {
+    private ChangeShippingService changeShippingService;
+
+    @RequestMapping(value = "/changeShipping", method = RequestMethod.POST) 
+    public String changeShipping(ChangeShippingRequest changeReq) {
+      try {
+        changeShippingService.changeShipping(changeReq);
+        return "changeShippingSuccess";
+      } catch (OptimisticLockingFailureException ex) {
+        // 누군가 먼저 같은 주문 애그리거트를 수정했으므로,
+        // 트랜잭션 충돌이 일어났다는 메시지를 보여준다.
+        return "changeShippingTxConflict";
+      }
+    }
+  }
+  ```  
+- 비선점 잠금을 아래 그림의 상황으로 확장해서 적용할 수 있다.
+  - 시스템은 사용자에게 수정폼을 제공할 때 애그리거트 버전을 함께 전송하고, 사용자가 폼을 전송할때와 폼을 생성할 때 사용한 애그리거트 버전을 함께 전송하도록 할 수 있다.
+  - 시스템을 아래 그림처럼 애그리거트를 수정할 때 사용자가 전송한 버전과 애그리거트 버전이 동일한 경우에만 수정 기능을 수행하도록 함으로써 트랜잭션 충돌 문제를 해소할 수 있다.
+  ![image](https://user-images.githubusercontent.com/28394879/136161119-6ec1c587-5892-427f-9ed6-3016cd895c2d.png) 
+  - 위 그림은 비선점 잠금을 이용한 트랜잭션 충돌 방지를 여러 트랜잭션으로 확장 한 것이다.
+- 위 그림의 과정 2에서 운영자는 배송 상태 변경을 요청할 때 앞서 과정 1을 통해 받은 애그리거트의 버전 값을 함께 전송한다.
+  - 시스템은 애그리거트를 읽는데 해당 시점의 버전 값도 함께 읽어온다.
+  - 만약 과정 1에서 받은 버전 A와 과정 2.1을 통해 읽은 애그리거트의 버전 B가 다르면, 과정 1과 과정 2사이에 다른 사용자가 해당 애그리거트를 수정한 것이다.
+  - 이 경우 시스템은 운영자가 이전 데이터를 기준으로 작업을 요청한 것으로 간주하여 과정 2.1.2과 같이 수정할 수 없다는 에러를 응답으로 전송한다.
+- 만약 버전 A와 B가 같다면 과정 1과 과정 2 사이에 누구도 애그리거트를 수정하지 않은 것이다.
+  - 이 경우 시스템은 과정 2.1.3과 같이 애그리거트를 수정하고, 과정 2.1.4를 이용해서 변경 내용을 DBMS에 반영한다.
+  - 과정 2.1.1과 과정 2.1.4사이에 아무도 애그리거트를 수정하지 않았다면 커밋에 성공하므로 성공 결과를 응답으로 전송한다.
+- 반면에 과정 2.1.1과 과정 2.1.4 사이에 누군가 애그리거트를 수정해서 커밋했다면 버전 값이 증가한 상태가 되므로 트랜잭션 커밋에 실패하고, 결과로 에러 응답을 전송한다.
+- 위의 그림과 같이 비선점 잠금 방식을 여러 트랜잭션으로 확장하려면 애그리거트 정보를 뷰로 보여줄 때 버전 정보도 함께 사용자 화면에 전달해야 한다.
+  - HTML 폼을 생성하는 경우 버전 값을 갖는 hidden 타입 <input> 태그를 생성해서 폼 전송 시 버전 값이 서버에 함께 전달되도록 한다.
+  ```html
+  <!-- 애그리거트 정보를 보여줄 때 뷰 코드는 버전 값을 함께 전송한다. -->
+  <form action="startShipping" method="post">
+  <input type="hidden" name="version" value="${orderDto.version}">
+  <input type="text" name="orderNumber" value="${orderDto.orderNumber}" readonly>
+  ... 
+  <input type="submit" value = "배송 상태로 변경하기">
+  </form>
+  ``` 
+- 사용자 요청을 처리하는 응용 서비스를 위한 요청 데이터는 사용자가 전송한 버전 값을 포함한다.
+  - 예) 배송 상태 변경을 처리하는 응용 서비스가 전달받는 데이터는 다음과 같이 주문 번호와 함께 해당 주문을 조회한 시점의 버전 값을 포함해야 한다.
+  ```java
+  public class StartShippingRequest {
+    private String orderNumber;
+    private long version;
+
+    ...생성자, getter
+  }
+  ``` 
+
+- 응용 서비스는 전달받은 버전 값을 이용해서 애그리거트의 버전과 일치하는지 확인하고 일치하는 경우에만 요청한 기능을 수행한다.
+  ```java
+  public class StartShippingService {
+    
+    @PreAuthoriza("hasRole('ADMIN')")
+    @Transactional
+    public void startShipping(StartShippingRequest req) {
+      Order order = orderRepository.findById(new OrderNo(req.getOrderNumber()));
+      checkOrder(order);
+      if (!order.matchVersion(req.getVersion()) {
+        throw new VersionConflictException();
+      }
+      order.startShipping();
+    }
+  }
+  ``` 
+
+- Order#matchVersion(long version) 메서드는 현재 애그리거트의 버전과 인자로 전달 받은 버전이 일치하면 true를 리턴하고 그렇지 않으면 false를 리턴하도록 구현한다.
+  - matchVersion()의 결과가 true가 아니면 버전이 일치하지 않는 것이므로 사용자가 이전 버전의 애그리거트 정보를 바탕으로 상태 변경을 요청한 것이다.
+  - 따라서 응용 서비스는 버전이 충돌했다는 익셉션을 발생시켜 표현 계층에 이를 알린다.
+- 표현 계층은 버전 충돌 익셉션이 발생하면 버전 충돌을 사용자에게 알려주고 사용자가 알맞은 후속 처리를 할 수 있도록 한다.
+
+```java
+@Controller
+public class OrderAdminController {
+  private StartShippingService startShippingService;
+
+  @RequestMapping(value = "/startShipping", method = RequestMethod.POST) 
+  public String startShipping(StartShippingRequest startReq) {
+    try {
+      startShippingService.startShipping(startReq);
+      return "shippingStarted";
+    } catch (OptimisticLockingFailureException | VersionConflictException ex) {
+      // 트랜잭션 충돌
+      return "startShippingTxConflict";
+    }
+  }
+}
+``` 
+- 이 코드는 비선점 잠금과 관련해서 발생하는 두 개의 익셉션을 처리하고 있다.
+  - 하나는 스프링 프레임워크가 발생시키는 OptimisticLockingFailureException 이고, 다른 하나는 응용 서비스 코드에서 발생시키는 VersionConflictException 이다.
+  - 이 두 익셉션은 개발자 입장에서 트랜잭션 충돌이 발생한 시점이 다른 것을 명확하게 해준다.
+  - VersionConflictException은 이미 누군가 애그리거트를 수정했다는 것을 의미하고, OptimisticLockingFailureException은 누군가 거의 동시에 애그리거트를 수정했다는 것을 의미한다.
+- 버전 충돌 상황에 대한 구분이 명시적으로 필요 없다면 응용 서비스에서 프레임워크용 익셉션을 발생시키도록 구현해도 된다.
+  ```java
+  public void startShipping(StartShippingRequest req) {
+    Order order = orderRepository.findById(new OrderNo(req.getOrderNumber()));
+    checkOrder(order);
+    if(!order.matchVersion(req.getVersion())) {
+      // 프레임워크가 제공하는 비선점 트랜잭션 충돌 관련 익셉션 사용 
+      throw new OptimisticLockingFailureException("version conflict");
+    }
+    order.startShipping();
+  }
+  ``` 
+
+### 강제 버전 증가
+- 애그리거트에 애그리거트 루트 외에 다른 엔티티가 존재하는데 기능 실행 도중 루트가 아닌 다른 엔티티의 값만 변경된다고 하자.
+  - 이 경우 JPA는 루트 엔티티의 버전 값을 증가하지 않는다.
+  - 연관된 엔티티의 값이 변경된다고 해도 루트 엔티티 자체의 값은 바뀌는 것이 없으므로 루트 엔티티의 버전 값을 갱신하지 않는 것이다. 
+- 그런데, 이런 JPA 특징은 애그리거트 관점에서 보면 문제가 된다.
+  - 비록 루트 엔티티의 값이 바뀌지 않았더라도 애그리거트의 구성요소 중 일부 값이 바뀌면 논리적으로 그 애그리거트는 바뀐 것이다.
+  - 따라서, 애그리거트 내에 어떤 구성요소의 상태가 바뀌면 루트 애그리거트의 버전 값을 증가해야 비선점 잠금이 올바르게 동작한다.
+- JPA는 이런 문제를 처리할 수 있도록 EntityManager#find() 메서드로 엔티티를 구할 때 강제로 버전 값을 증가시키는 잠금 모드를 지원하고 있다.
+  - 다음은 비선점 강제 버전 증가 잠금 모드를 사용해서 엔티티를 구하는 코드의 작성 예를 보여주고 있다.
+  ```java
+  @Repository
+  public class JpaOrderRepository implements OrderRepository {
+    @PersistenceContext
+    private EntityManager entityManager;
+    
+    @Override
+    public Order findByIdOptimisticLockMode(OrderNo id) {
+      return entityManager.find(
+        Order.class, id, LockModeType.OPTIMISTIC_FORCE_INCREMENT);
+      )
+    }
+  }
+  ``` 
+- LockModeType.OPTIMISTIC_FORCE_INCREMENT을 사용하면 해당 엔티티의 상태가 변경되었는지 여부에 상관없이 트랜잭션 종료 시점에 버전 값 증가 처리를 한다.
+  - 이 잠금 모드를 사용하면 애그리거트 루트 엔티티가 아닌 다른 엔티티나 밸류가 변경되더라도 버전 값을 증가시킬 수 있으므로 비선점 잠금 기능을 안전하게 적용할 수 있다.
+ 
+
 </details>
 
 <details> <summary> 4. 오프라인 선점 잠금 </summary>
