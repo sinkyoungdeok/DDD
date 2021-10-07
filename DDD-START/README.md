@@ -3740,6 +3740,304 @@ public class OrderAdminController {
   - 첫 번째 트랜잭션은 폼을 보여주고, 두 번째 트랜잭션은 데이터를 수정한다.
   - 오프라인 선점 잠금을 사용하면 아래 사진의 과정 1처럼 폼 요청 과정에서 잠금을 선점하고, 과정 3처럼 수정 과정에서 잠금을 해제한다.
   - 이미 잠금을 선점한 상태에서 다른 사용자가 폼을 요청하면 과정 2처럼 잠금을 구할 수 없어 에러 화면을 보게 된다.
+   
   ![image](https://user-images.githubusercontent.com/28394879/136178782-8708598c-b5a8-4766-b659-f33e5f656f94.png) 
+- 위의 그림에서 사용자 A가 과정 3의 수정 요청을 수행하지 않고 프로그램을 종료하면 어떻게 될까?
+  - 이 경우 잠금을 해제하지 않으므로 다른 사용자는 영원히 잠금을 구할 수 없는 상황이 발생한다.
+  - 이런 사태를 방지하기 위해 오프라인 선점 방식은 잠금의 유효 시간을 가져야 한다.
+  - 유효 시간이 지나면 자동으로 잠금을 해제해서 다른 사용자가 잠금을 일정 시간 후에 다시 구할 수 있도록 해야 한다.
+- 사용자 A가 잠금 유효 시간이 지난 후 1초 뒤에 3번 과정을 수행했다고 가정하자.
+  - 잠금을 해제되어 사용자 A는 수정에 실패하게 된다.
+  - 이런 상황을 만들지 않으려면 일정 주기로 유효 시간을 증가시키는 방식이 필요하다.
+  - 예) 수정 폼에서 1분 단위로 Ajax 호출을 해서 잠금 유효 시간을 1분씩 증가시키는 방법이 있다.
+
+### 오프라인 선점 잠금을 위한 LockManager 인터페이스와 관련 클래스 
+
+- 오프라인 선점 잠금은 크게 잠금 선점 시도, 잠금 확인, 잠금 해제, 락 유효 시간 연장의 네가지 기능을 제공해야 한다.
+  - 이 기능을 위한 LockManager 인터페이스는 다음과 같다.
+  ```java
+  package com.myshop.lock;
+
+  public interface LockManager {
+    LockId tryLock(String type, String id) throws LockException;
+    void checkLock(LockId lockId) throws LockException;
+    void releaseLock(LockId lockId) throws LockException;
+    void extendLockExpiration(LockId lockId, long inc) throws LockException;
+  }
+  ``` 
+
+- tryLock() 메서드는 type과 id를 파라미터로 갖는다.
+  - 이 두 파라미터에는 각각 잠글 대상 타입과 식별자를 값으로 잔달하면 된다.
+  - 예) 식별자가 10인 Article에 대한 잠금을 구하고 싶다면 tryLock()을 실행할 때 'domain.Article' 을 type값으로 주고 '10'을 id값으로 주면 된다.
+  - tryLock()은 LockId를 리턴하는데 LockId는 잠금을 식별할 때 사용한다.
+  - 각 락마다 고유 식별자를 갖도록 구현한 것이다.
+  - 일단 잠금을 구하면 잠금을 해제하거나, 잠금이 유효한지 검사하거나, 잠금의 유효 시간을 늘릴 때 LockId를 사용한다.
+  - LockId의 코드는 다음과 같다.
+  ```java
+  package com.myshop.lock;
+
+  public class LockId {
+    private String value;
+
+    public LockId(String value) {
+      this.value = value;
+    }
+
+    public String getValue() {
+      return value;
+    }
+  }
+  ``` 
+
+- 오프라인 선점 잠금이 필요한 코드는 LockManager#tryLock()을 이용해서 잠금 선점을 시도한다.
+  - 잠금 선점에 성공하면 tryLock()은 LockId를 리턴한다.
+  - 이 LockId는 다음에 잠금을 해제할 때 사용한다.
+  - LockId가 없으면 잠금을 해제할 수 없으므로 LockId를 어딘가에 보관해야 한다.
+- 다음은 컨트롤러가 오프라인 선점 잠금 기능을 이용해서 데이터 수정 폼에 동시에 접근하는 것을 제어하는 코드의 예를 보여주고 있다. 
+  - 수정 폼에서 데이터를 전송할 때 LockId를 전송할 수 있도록 LockId를 모델에 추가했다.
+  ```java
+  @RequestMapping("/some/edit/{id}")
+  public String editForm(@PathVariable("id") Long id, ModelMap model) {
+    // 1. 오프라인 선점 잠금 시도
+    LockId lockId = lockManager.tryLock("data",id);
+
+    // 2. 기능 실행
+    Data data = someDao.select(id);
+    model.addAttribute("data", data);
+    
+    // 3. 잠금 해제에 사용할 LockId를 모델에 추가
+    model.addAttribute("lockId", lockId);
+
+    return "editForm";
+  }
+  ``` 
+
+- 잠금을 선점하는데 실패하면 LockException이 발생하는데, 이 때는 다른 사용자가 데이터를 수정 중이니 나중에 다시 시도해 보라는 안내 화면을 보여주면 된다.
+- 수정 폼은 LockId를 다시 전송해서 잠금을 해제할 수 있도록 한다.
+  ```html
+  <form action="/some/edit/${data.id}" method="post">
+    ...
+    <input type="hidden" name="lid" value="${lockId.value}">
+    ...
+  </form>
+  ```  
+
+- 잠금을 해제하는 코드는 다음과 같이 전달받은 LockId를 이용한다.
+  ```java
+  @RequestMapping(value = "/some/edit/{id}", method = RequestMethod.POST)
+  public String edit(@PathVariable("id") Long id, @ModelAttribute("editReq") EditRequest editReq,
+  @RequestParam("lid") String lockIdValue) {
+    editReq.setId(id);
+
+    // 1. 잠금 선점 확인
+    LockId lockId = new LockId(lockIdValue);  
+    lockManager.checkLock(lockId);
+
+    // 2. 기능 실행
+    someEditService.edit(editReq);
+    model.addAttribute("data", data);
+
+    // 3. 잠금 해제
+    lockManager.releaseLock(lockId);
+
+    return "editSuccess";
+  }
+  ``` 
+
+- 위 코드를 보면 LockManager#chekcLock() 메서드를 가장 먼저 실행하는데, 잠금을 선점한 이후에 실행하는 기능은 다음과 같은 상황을 고려해서 반드시 주어진 LockId를 갖는 잠금이 유효한지 검사해야 한다.
+  - 잠금의 유효 시간이 지났으면 이미 다른 사용자가 잠금을 선점한다.
+  - 잠금을 선점하지 않은 사용자가 기능을 실행했다면 기능 실행을 막아야 한다.
+
+
+### DB를 이용한 LockManager 구현
+- DB를 이용한 LockManager를 구현해보자.
+  - 잠금 정보를 저장할 테이블과 인덱스를 다음과 같이 생성한다.
+  - 이 쿼리는 MySQL용이므로 다른 DBMS를 사용한다면 해당 DBMS에 맞게 변형해서 사용해야 한다.
+  ```sql
+  create table locks (
+    `type` varchar(255),
+    id varchar(255),
+    lockid varchar(255),
+    expiration_time datetime,
+    primary key (`type`, id)
+  ) character set utf8;
+
+  create unique index locks_idx ON locks (lockid);
+  ``` 
+- Order 타입의 1번 식별자를 갖는 애그리거트에 대한 잠금을 구하고 싶다면 다음의 insert 쿼리를 이용해서 locks 테이블에 데이터를 삽입하면 된다.
+  `insert into locks values ('Order', '1', '생성한lockid', '2016-03-28 09:10:00');`
+- 'type'과 'id' 칼럼을 주요 키로 지정했는데, 이를 통해 동시에 두 사용자가 특정 타입의 데이터에 대한 잠금을 구하는 것을 방지했다. 
+  - 각 잠금마다 새로운 LockId를 사용하므로 lockid 필드를 유니크 인덱스로 설정했다. 
+  - 잠금의 유효 시간을 보관하기 위해 expiration_time 칼럼을 사용한다.
+- locks 테이블의 데이터를 담을 LockData 클래스를 다음과 같이 작성한다.
+  ```java
+  package com.myshop.lock;
+  
+  public class LockData {
+    private String type;
+    private String id;
+    private String lockId;
+    private long expirationTime;
+    
+    public LockData(String type, String id, String lockId, long expirationTime) {
+      this.type = type;
+      this.id = id;
+      this.lockId = lockId;
+      this.expirationTime = expirationTime;
+    }
+
+    public String getType() {
+      return type;
+    }
+
+    public String getId() {
+      return id;
+    }
+
+    public String getLockId() {
+      return lockId;
+    }
+
+    public long getExpirationTime() {
+      return expirationTime;
+    }
+
+    public boolean isExpired() {
+      return expirationTime < System.currenTimeMillis();
+    }
+  }
+  ``` 
+- isExpired() 메서드는 유효 시간이 지났는지 여부를 판단할 때 사용한다.
+- locks 테이블을 이용해서 LockManager를 구현한 코드는 길이가 다소 길어서 나눠서 표시했다.
+  - 먼저 가장 긴 tryLock()부분은 아래 코드와 같다.
+  - DB 연동은 스프링이 제공하는 JdbcTemplate을 이용해서 처리 했다.
+  ```java
+  @Component
+  public class SpringLockManager implements LockManager {
+    private int lockTimeout = 5 * 60 * 1000;
+    private JdbcTemplate jdbcTemplate;
+
+    private RowMapper<LockData> lockDataRowMapper = (rs, rowNum) -> new LockData(rs.getString(1), rs.getString(2), rs.getString(3), rs.getTimestamp(4).getTime());
+
+    @Transactional
+    @Override
+    public LockId tryLock(String type, String id) throws LockException {
+      checkAlreadyLocked(type, id);
+      LockId lockId = new LockId(UUID.randomUUID().toString());
+      locking(type, id, lockId);
+      return lockId;
+    }
+
+    private void checkAlreadyLocked(String type, String id) {
+      List<LockData> locks = jdbcTemplate.query(
+            "select * from locks where type = ? and id = ?",
+            lockDataRowMapper, type, id);
+      Optional<LockData> lockData = handleExpiration(locks);
+      if (lockData.isPresent()) throw new AlreadyLockedException();
+    }
+
+    private void Optional<LockData> handleExpiration(List<LockData> locks) {
+      if(locks.isEmpty()) return Optional.empty();
+      LockData lockData = locks.get(0);
+
+      if(lockData.isExpired()) {
+        jdbcTemplate.update(
+            "delete from locks where type = ? and id = ?",
+            lockData.getType(), lockData.getId());
+        return Optional.empty();
+      } else {
+        return Optional.of(lockData);
+      }
+    }
+
+    private void locking(String type, String id, LockId lockId) {
+      try {
+        int updatedCount = jdbcTemplate.update(
+          "insert into locks values (?,?,?,?)",
+          type,id,lockId.getValue(), new Timestamp(getExpirationTime()));
+        if (updatedCount ==0) throw new LockingFailException();
+      } catch (DuplicateKeyException e) {
+        throw new LockingFailException(e);
+      }
+    }
+
+    private long getExpirationTime() {
+      return SYstem.currentTimeMillis() + lockTimeout;
+    }
+  }
+  ``` 
+
+**코드 설명**
+
+- lockDataRowMapper 변수: locks 테이블에서 조회한 데이터를 LockData로 매핑하기 위한 RowMappr이다.
+- tryLock() 함수: type과 id에 대한 잠금을 시도 한다.
+  - checkAlreadyLocked(type, id) 로 해당 type과 id에 잠금이 존재하는지 검사한다.
+  - new LockId()로 새로운 LockId를 생성한다. 매번 새로운 LockId를 생성해야 하는데 여기서는 UUID를 이용했다.
+  - locking(..) 으로 잠금을 생성한다.
+  - return lockId; 는 LockId를 리턴한다.
+- checkAlreadyLocked() 함수: 잠금이 존재하는지 검사한다.
+  - jdbcTemplate.query로 locks 테이블에서 type과 id에 대한 데이터를 조회한다.
+  - handleExpiration으로 유효 시간이 지난 데이터를 처리한다.
+  - isPresent를 활용해 유효 시간이 지나지 않은 LockData가 존재하면 익셉션이 발생한다.
+- handleExpiration() 함수
+  - 잠금의 유효 시간이 지나면 해당 데이터를 삭제하고 값이 없는 Optional을 리턴한다.
+  - 유효 시간이 지나지 않았으면 해당 LockData를 가진 Optional을 리턴한다.
+- locking() 함수
+  - jdbcTEmplate.update쿼리로 잠금을 위해 locks 테이블에 데이터를 삽입하고 데이터 삽입 결과가 없으면 new LockingFailException 익셉션이 발생한다.
+  - 동일한 주요 키나 lockid를 가진 데이터가 이미 존재한다면 DuplicateKeyException이 발생하는데, 이 경우에도 익셉션을 발생시킨다.
+- getExpirationTime()
+  - 현재 시간 기준으로 lockTimeout 이후 시간을 유효 시간으로 생성한다.
+ 
+ - 코드가 다소 복잡한데 tryLock() 메서드를 기준으로 전체 흐름을 살펴보면 checkAlreadyLocked() 메서드를 이용해서 이미 잠금이 선점됐는지 확인하고 locking() 메서드로 잠금을 선점한다.
+
+
+
+ - SpringLockManager의 나머지 구현 코드는 다음과 같다.
+   ```java
+   @Override
+   public void checkLock(LockId lockId) throws LockException {
+     Optional<LockData> lockData = getLockData(lockId);
+     if (!lockData.isPresent()) throw new NoLockException();
+   }
+   
+   private Optional<LockData> getLockData(LockId lockId) {
+     List<LockData> locks = jdbcTemplate.query(
+            "select * from locks where lockid = ?",
+            lockDataRowMapper, lockId.getValue());
+     return handleEpiration(locks);
+   }
+
+   @Transactional
+   @Override
+   public void extendLockExpiration(LockId lockId, long inc) throws LockException {
+    Optional<LockData> lockDataOpt = getLockData(lockId);
+    LockData lockData = lockDataOpt.orElseThrow(() -> new NoLockException());
+    jdbcTemplate.update(
+          "update locks set expiration_time = ? where type = ? AND id = ?",
+          new Timestamp(lockData.getTimestamp() + inc),
+          lockData.getType(), lockData.getId());
+   }
+
+   @Transactional
+   @Override
+   public void releaseLock(LockId lockId) throws LockException {
+     jdbcTemplate.update("delete from locks where lockid= ?", lockId.getValue());
+   }
+
+   @Autowired
+   public void setJdbcTemplate(JdbcTemplate jdbcTemplate) {
+     this.jdbcTemplate = jdbcTemplate;
+   }
+   ```  
+
+**코드 설명**
+
+- checkLock() 함수: 잠금이 유효한지 검사한다. 잠금이 존재하지 않으면 익셉션이 발생한다.
+- getLockData() 함수: LockId에 해당하는 LockData를 구한다. handleExpiration()를 이용 해서 유효 시간이 지난 LockData를 처리한다. handleExpiration() 메서드는 이전코드를 참고한다.
+- extendLockExpiration() 함수: lockId에 해당하는 잠금 유효 시간을 inc만큼 늘린다.
+- releaseLock() 함수: LockId에 해당하는 잠금 데이터를 locks 테이블에서 삭제한다.
+ 
+
+ 
 
 </details>
