@@ -4041,3 +4041,32 @@ public class OrderAdminController {
  
 
 </details>
+
+
+
+
+# 9. 도메인 모델과 BOUNDED CONTEXT
+
+<details> <summary> 1. 도메인 모델과 경계 </summary>
+
+</details>
+
+<details> <summary> 2. BOUNDED CONTEXT </summary>
+
+</details>
+
+<details> <summary> 3. BOUNDED CONTEXT의 구현 </summary>
+
+</details>
+
+<details> <summary> 4. BOUNDED CONTEXT간 통합 </summary>
+
+</details>
+
+<details> <summary> 5. BOUNDED CONTEXT간 관계 </summary>
+
+</details>
+
+<details> <summary> 6. 컨텍스트 맵 </summary>
+
+</details>
