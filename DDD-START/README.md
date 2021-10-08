@@ -4072,11 +4072,43 @@ public class OrderAdminController {
 
 
 > BOUNDED CONTEXT를 우리말로 번역하면 경계를 갖는 컨텍스트라고 다소 길게 번역할 수 있지만 DDD 용어가 잘 드러나지 않는다.
-> 한글로 바운디드 컨텍스트라고 표기한느 것도 어색하기 때문에 여기서는 BOUNDED CONTEXT라는 영문을 그대로 사용했다.
+> 한글로 바운디드 컨텍스트라고 표기하는 것도 어색하기 때문에 여기서는 BOUNDED CONTEXT라는 영문을 그대로 사용했다.
 
 </details>
 
 <details> <summary> 2. BOUNDED CONTEXT </summary>
+
+## 2. BOUNDED CONTEXT
+- BOUNDED CONTEXT는 모델의 경계를 결정하며 한 개의 BOUNDED CONTEXT는 논리적으로 한 개의 모델을 갖는다.
+  - BOUNDED CONTEXT는 용어를 기준으로 구분한다.
+  - 카탈로그 컨텍스트와 재고 컨텍스트는 서로 다른 용어를 사용하므로 이 용어를 기준으로 컨텍스트를 분리할 수 있다.
+  - 또한, BOUNDED CONTEXT는 실제로 사용자에게 기능을 제공하는 물리적 시스템으로 도메인 모델은 이 BOUNDED CONTEXT 안에서 도메인을 구현한다.
+- 이상적으로 하위 도메인과 BOUNDED CONTEXT가 일대일 관계를 가지면 좋겠지만 현실은 그렇지 않을 때가 많다.
+  - BOUNDED CONTEXT가 기업의 팀 조직 구조에 따라 결정되기도 한다.
+  - 예) 주문 하위 도메인이라도 주문을 처리하는 팀과 복잡한 결제 금액 계산 로직을 구현하는 팀이 따로 있을떄 
+  - 이 경우 주문 하위 도메인에 주문 BOUNDED CONTEXT와 결제 금액 계산 BOUNDED CONTEXT가 존재하게 된다.
+  - 아직 용어를 명확하게 하지 못해 두 하위 도메인을 한 BOUNDED CONTEXT에서 구현하기도 한다.
+  - 카탈로그와 재고 관리가 아직 명확하게 구분 되지 않은 경우 두 하위 도메인을 한 BOUNDED CONTEXT에서 구현하기도 한다. 
+  ![image](https://user-images.githubusercontent.com/28394879/136515034-f8a3da41-caea-44d1-b35b-498da8478e35.png)
+
+- 규모가 작은 기업은 전체 시스템을 한 개 팀에서 구현할 때도 있다.
+  - 예) 소규모 쇼핑몰을 운영할 경우 한 개의 웹 애플리케이션으로 온라인 쇼핑을 서비스한다.
+  - 이 경우 하나의 시스템에서 회원, 카탈로그, 재고, 구매, 결제와 관련된 기능을 제공한다.
+  - 즉, 여러 하위 도메인을 한 개의 BOUNDED CONTEXT에서 구현한다.
+- 여러 하위 도메인을 하나의 BOUNDED CONTEXT에서 개발할 때 주의할 점은 하위 도메인의 모델이 뒤섞이지 않도록 하는 것이다.
+  - 한 개의 이클립스 프로젝트에 각 하위 도메인의 모델이 위치하면 아무래도 전체 하위 도메인을 위한 단일 모델을 만들고 싶은 유혹에 빠지기 쉽다.
+  - 이런 유혹에 걸려들면 결과적으로 도메인 모델이 개별 하위 도메인을 제대로 반영하지 못해서 하위 도메인별 기능 확장이 어렵게 되고 이는 서비스의 경쟁력을 떨어뜨리는 원인이 된다.
+  - 따라서, 비록 한 개의 BOUNDED CONTEXT에서 여러 하위 도메인을 포함하더라도 하위 도메인마다 구분되는 패키지를 갖도록 구현해야 하위 도메인을 위한 모델이 서로 뒤섞이지 않아서 하위 도메인마다 BOUNDED CONTEXT를 갖는 효과를 낼 수 있다.
+   
+  ![image](https://user-images.githubusercontent.com/28394879/136520353-2fc863da-f044-4b7e-a346-893c6c0acaa4.png)
+  
+- BOUNDED CONTEXT는 도메인 모델을 구분하는 경계가 되기 떄문에 BOUNDED CONTEXT는 구현하는 하위 도메인에 알맞은 모델을 포함한다.
+  - 같은 사용자라 하더라도 주문 BOUNDED CONTEXT와 회원 BOUNDED CONTEXT가 갖는 모델이 달라 진다.
+  - 또한, 같은 상품이라도 카탈로그 BOUNDED CONTEXT의 Product와 재고 BOUNDED CONTEXT의 Product는 각 컨텍스트에 맞는 모델을 갖는다.
+  - 따라서 회원의 Member는 애그리거트 루트이지만 주문의 Orderer는 밸류가 되고 카탈로그의 Product는 상품이 속할 Category와 연관을 갖지만 재고의 Product는 카탈로그의 Category와 연관을 맺지 않는다.
+   
+  ![image](https://user-images.githubusercontent.com/28394879/136522621-002bf778-ae39-4c97-9b5e-c11fc62c17a2.png)
+   
 
 </details>
 
