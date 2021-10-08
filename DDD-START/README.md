@@ -4114,6 +4114,46 @@ public class OrderAdminController {
 
 <details> <summary> 3. BOUNDED CONTEXT의 구현 </summary>
 
+## 3. BOUNDED CONTEXT의 구현
+- BOUNDED CONTEXT가 도메인 모델만 포함하는 것은 아니다.
+  - BOUNDED CONTEXT는 도메인 모델뿐만 아니라 도메인 기능을 사용자에게 제공하는 데 필요한 표현 영역, 응용 서비스, 인프라 영역 등을 모두 포함한다.
+  - 도메인 모델의 데이터 구조가 바뀌면 DB테이블 스키마도 함께 변경해야 하므로 해당 테이블도 BOUNDED CONTEXT에 포함된다. 
+  ![image](https://user-images.githubusercontent.com/28394879/136524349-e8ee8942-e166-4120-98dd-d7704deb960f.png)
+
+- 표현 영역은 인간 사용자를 위해 HTML 페이지를 생성할 수도 있고 다른 BOUNDED CONTEXT를 위해 REST API를 제공할 수도 있다.
+- 모든 BOUNDED CONTEXT를 반드시 도메인 주도로 개발할 필요는 없다.
+  - 상품의 리뷰는 복잡한 도메인 로직을 갖지 않기 때문에 CRUD 방식으로 구현해도 된다.
+  - 즉, DAO와 데이터 중심의 밸류 객체를 이용해서 리뷰 기능을 구현해도 기능을 유지보수하는 데 큰 문제가 없다
+  ![image](https://user-images.githubusercontent.com/28394879/136525202-7c49707d-a18f-494b-b6dc-a3863ad7c88a.png)
+  
+- 서비스-DAO 구조를 사용하면 도메인 기능이 서비스에 흩어지게 되지만 도메인 기능 자체가 단순하면 서비스-DAO로 구성된 CRUD 방식을 사용해도 코드를 유지보수하는 데 문제되지 않는다.
+- 한 BOUNDED CONTEXT에서 두 방식을 혼합해서 사용할 수도 있다.
+  - 대표적인 예가 CQRS 패턴이다.
+  - CQRS는 Command Query Reponsibility Segregation의 약자로 상태를 변경하는 명령 기능과 내용을 조회하는 쿼리 기능을 위한 모델을 구분하는 패턴이다.
+  - 이 패턴을 단일 BOUNDED CONTEXT에 적용하면 아래 그림과 같이 상태 변경과 관련된 기능은 도메인 모델 기반으로 구현하고 조회 기능은 서비스-DAO를 이용해서 구현할 수 있다.
+  ![image](https://user-images.githubusercontent.com/28394879/136526181-98f8052e-3b25-441f-8b17-62518dbc7aa9.png)
+
+- CQRS에 대한 내용은 11장에서 다시 살펴보도록 하자.
+
+- 각 BOUNDED CONTEXT는 서로 다른 구현 기술을 사용할 수도 있다.
+  - 웹 MVC는 스프링 MVC를 사용하고 리포지터리 구현 기술로는 JPA/하이버네이트를 사용하는 BOUNDED CONTEXT가 존재하고, Netty를 이용해서 REST API를 제공하고 MyBatis를 리포지터리 구현 기술로 사용하는 BOUNDED CONTEXT가 존재할 수도 있다.
+  - 어떤 BOUNDED CONTEXT는 RDBMS 대신 HBase나 몽고DB와 같은 NoSQL을 사용할 수도 있을 것이다.
+- BOUNDED CONTEXT가 반드시 사용자에게 보여지는 UI를 가져야 하는 것은 아니다.
+  - 예) 상품 상세 정보를 보여주는 페이지
+  - 웹 브라우저는 아래 그림과 같이 카탈로그 BOUNDED CONTEXT를 통해 상세 정보를 읽어온 뒤, 리뷰 BOUNDED CONTEXT의 REST API를 직접 호출해서 로딩한 JSON 데이터를 알맞게 가공해서 리뷰 목록을 보여줄 수도 있다. 
+  ![image](https://user-images.githubusercontent.com/28394879/136530167-88eae370-7493-4063-93fb-659e7d8beb89.png)
+
+
+- 아래그림과 같이 UI를 처리하는 서버를 두고 UI 서버에서 BOUNDED CONTEXT와 통신해서 사용자 요청을 처리하는 방법도 있다.
+  ![image](https://user-images.githubusercontent.com/28394879/136530572-35ca200a-9bc8-4497-90c8-f47e63fe029c.png)
+  - 이 구조에서 UI 서버는 각 BOUNDED CONTEXT를 위한 파사드(Facede) 역할을 수행한다.
+  - 브라우저가 UI 서버에 요청을 보내면 UI 서버는 카탈로그와 리뷰 BOUNDED CONTEXT로부터 필요한 정보를 읽어와 조합한 뒤 브라우저에 응답을 제공한다.
+  - 각 BOUNDED CONTEXT는 UI 서버와 통신하기 위해 HTTP, Protobuf, Thrift와 같은 방식을 이용할 수 있을 것이다.
+ 
+   
+   
+
+
 </details>
 
 <details> <summary> 4. BOUNDED CONTEXT간 통합 </summary>
