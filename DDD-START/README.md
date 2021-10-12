@@ -4158,6 +4158,182 @@ public class OrderAdminController {
 
 <details> <summary> 4. BOUNDED CONTEXT간 통합 </summary>
 
+## 4. BOUNDED CONTEXT간 통합
+
+- 온라인 쇼핑 사이트에서 매출 증대를 위해 카탈로그 하위 도메인에 개인화 추천 기능을 도입하기로 했다고 하자.
+  - 기존 카탈로그 시스템을 개발하던 팀과 별도로 추천 시스템을 담당하는 팀이 새로 생겨서 이 팀에서 주도적으로 추천 시스템을 만들기로 했다.
+  - 이렇게 되면 카탈로그 하위 도메인에는 기존 카탈로그를 위한 BOUNDED CONTEXT와 추천 기능을 위한 BOUNDED CONTEXT가 생긴다.
+  ![image](https://user-images.githubusercontent.com/28394879/136876119-3488f716-f4aa-487c-9cb0-c0a2a3c8ca7c.png)
+
+- 두 팀이 관련된 BOUNDED CONTEXT를 개발하면 자연스럽게 두 BOUNDED CONTEXT 간 통합이 발생한다.
+  - 카탈로그와 추천 BOUNDED CONTEXT 간 통합이 필요한 기능은 다음과 같다.
+  - 사용자가 제품 상세 페이지를 볼 때, 보고 있는 상품과 유사한 상품 목록을 하단에 보여준다
+- 사용자가 카탈로그 BOUNDED CONTEXT에 추천 제품 목록을 요청하면 카탈로그 BOUNDED CONTEXT는 추천 BOUNDED CONTEXT로부터 추천 정보를 읽어와 추천 제품 목록을 제공한다.
+  - 이때 카탈로그 컨텍스트와 추천 컨텍스트의 도메인 모델은 서로 다르다.
+  - 카탈로그는 제품을 중심으로 도메인 모델을 구현하지만 추천은 추천 연산을 위한 모델을 구현한다.
+  - 예) 추천 시스템은 상품의 상세 정보를 포함하지 않으며 상품 번호 대신 아이템 ID라는 용어를 사용해서 식별자를 표현하고 추천 순위와 같은 데이터를 담게 된다.
+- 카탈로그 시스템은 추천 시스템으로부터 추천 데이터를 받아오지만, 카탈로그 시스템에서는 추천의 도메인 모델을 사용하기보다는 카탈로그 도메인 모델을 사용해서 추천 상품을 표현해야 한다.
+  - 즉, 다음과 같이 카탈로그의 모델을 기반으로 하는 도메인 서비스를 이용해서 상품 추천 기능을 표현해야 한다.
+  ```java
+  /**
+    * 상품 추천 기능을 표현하는 도메인 서비스 
+  */
+  public interface ProductRecommendationService {
+    public List<Product> getRecommendationOf(ProductId id);
+  }
+  ``` 
+- 도메인 서비스를 구현한 클래스는 인프라스트럭처 영역에 위치한다.
+  - 이 클래스는 외부 시스템과의 연동을 처리하고 외부 시스템의 모델과 현재 도메인 모델 간의 변환을 책임진다.
+  ![image](https://user-images.githubusercontent.com/28394879/136878274-f3f38894-4098-4444-a10f-b74554787bd9.png)
+
+- 위의 그림에서 RecSystemClient는 외부 추천 시스템이 제공하는 REST API를 이용해서 특정 상품을 위한 추천 상품 목록을 로딩한다.
+  - 이 REST API가 제공하는 데이터는 추천 시스템의 모델을 기반으로 하고 있기 때문에 API 응답은 다음과 같이 상품 도메인 모델과 일치하지 않는 데이터를 제공할 것이다.
+  ```
+  [
+    {itemId: 'PROD-1000', type: 'PRODUCT', rank:100},
+    {itemId: 'PROD-1001', type: 'PRODUCT', rank:54}
+  ]
+  ``` 
+
+- RecSystemClient는 REST API로 부터 데이터를 읽어와 카탈로그 도메인에 맞는 상품 모델로 변환한다.
+  - 다음은 일부 코드를 가상으로 만들어 본 것이다.
+  ```java
+  public class RecSystemClient implements ProductRecommendationService {
+    private ProductRepository productRepository;
+
+    @Override
+    public List<Product> getRecommendationsOf(ProductId id) {
+      List<RecommendationItem> items = getRecItems(id.getValue());
+      return toProducts(items);
+    }
+
+    private List<RecommendationItem> getRecItems(String itemId) {
+      // externalRecClient는 외부 추천 시스템을 위한 클라이언트라고 가정
+      return externalRecClient.getRecs(itemId);
+    }
+
+    private List<Product> toProducts(List<RecommendationItem> items) {
+      return items.stream()
+          .map(item -> toProductId(item.getItemId()) )
+          .map(prodId -> productRepository.findById(prodId ) )
+          .collect(toList());
+    }
+
+    private ProductId toProductId(String itemId) {
+      return new ProductId(itemId);
+    }
+
+  ...
+  }
+  ```
+
+- 이 코드에서 getRecItems() 메서드에서 사용하는 externalRecClient는 외부 추천 시스템에 연결할 때 사용하는 클라이언트로서 추천 시스템을 관리하는 팀에서 배포하는 모듈이라고 가정하자.
+  - 이 모듈이 제공하는 RecommendationItem은 추천 시스템의 모델을 따를 것이다.
+  - RecSystemClient는 추천 시스템의 모델을 받아와 toProducts() 메서드를 이용해서 카탈로그 도메인의 Product 모델로 변환하는 작업을 처리한다.
+
+- 두 모델 간의 변환 과정이 복잡하면 아래 그림과 변환 처리를 위한 별도 클래스를 만들고 이 클래스에서 변환을 처리해도 된다.
+  ![image](https://user-images.githubusercontent.com/28394879/136881074-bc1fe79a-9d9b-4c20-ac81-93081c00cfa1.png)
+
+
+- REST API를 호출하는 것은 두 BOUNDED CONTEXT를 직접 통합하는 방법이다.
+  - 직접 통합하는 대신 간접적으로 통합하는 방법도 있다.
+  - 대표적인 간접 통합 방식이 메시지 큐를 사용하는 것이다.
+  - 추천 시스템은 사용자의 조회 상품 이력이나 구매 이력과 같은 사용자 활동 이력을 필요로 하는데 이 내역을 전달할 때 메시지 큐를 사용할 수 있다.
+  ![image](https://user-images.githubusercontent.com/28394879/136882547-d6c0836e-5bad-4033-ac4b-e6dcb9f40600.png)
+  
+- 위의 그림에서 카탈로그 BOUNDED CONTEXT는 추천 시스템이 필요로 하는 사용자 활동 이력을 메시지 큐에 추가한다.
+  - 메시지 큐는 보통 비동기로 메시지를 처리하기 때문에 카탈로그 BOUNDED CONTEXT는 메시지를 큐에 추가한 뒤에 추천 BOUNDED CONTEXT가 메시지를 처리할 때까지 기다리지 않고 바로 이어서 자신의 처리를 계속한다.
+- 추천 BOUNDED CONTEXT는 큐에서 이력 메시지를 읽어와 추천을 계산하는데 사용할 것이다.
+  - 이는 두 BOUNDED CONTEXT가 사용할 메시지의 데이터 구조를 맞춰야 함을 의미한다.
+  - 각각의 BOUNDED CONTEXT를 담당하는 팀은 서로 만나서 주고 받을 데이터 형식에 대해 협의해야 한다.
+  - 메시지 시스템을 카탈로그 측에서 관리하고 있다면 큐에 담기는 메시지는 아래 그림과 같이 카탈로그 도메인을 따르는 데이터를 담을 것이다.
+   
+  ![image](https://user-images.githubusercontent.com/28394879/136883180-686c8031-bb7f-43c9-9432-fba2b15a5435.png)
+
+- 추천 BOUNDED CONTEXT 관점에서 접근하면 아래 그림과 같이 메시지 데이터 구조를 잡을 수 있다.
+  
+   ![image](https://user-images.githubusercontent.com/28394879/136883653-8e984cc6-d375-4a91-aa1c-85007e54c8f7.png)
+
+  
+
+- 어떤 도메인 관점에서 모델을 사용하느냐에 따라 두 BOUNDED CONTEXT의 구현 코드가 달라지게 된다.
+  - 카탈로그 도메인 관점에서 큐에 저장할 메시지를 생성하면 카탈로그 시스템의 연동 코드는 카탈로그 기준의 데이터를 그대로 메시지 큐에 저장한다.
+  ```java
+  // 상품 조회 관련 로그 기록 코드
+  public class ViewLogService {
+    private MessageClient messageClient;
+
+    public void appendViewLog(String memberId, String productId, Date time) {
+      messageClient.send(new ViewLog(memberId, productId, time));
+    }
+    ...
+
+  }
+
+  // messageClient
+  public class RabbitMQClient implements MessageClient {
+    private RabbitTemplate rabbitTemplate;
+
+    @Override
+    public void send(ViewLog viewLog) {
+      // 카탈로그 기준으로 작성한 데이터를 큐에 그대로 보관
+      rabbitTemplate.convertAndSend(logQueueName, viewLog);
+    }
+    ...
+  }
+  ``` 
+
+- 카탈로그 도메인 모델을 기준으로 메시지를 전송하므로 추천 시스템에서는 자신의 모델에 맞게 메시지를 변환해서 처리해야 한다.
+- 반대로 추천 시스템을 기준으로 큐에 데이터를 저장하기로 했다면 카탈로그의 코드는 다음과 같이 바뀔 것이다.
+  ```java
+  // 상품 조회 관련 로그 기록 코드
+  public class ViewLogService {
+    private MessageClient messageClient;
+
+    public void appendViewLog(String memberId, String productId, Date time) {
+      messageClient.send(new ActivityLog(productId, memberId, ActivityType.VIEW, time));
+    }
+    ...
+  }
+
+  // messageClient
+  public class RabbitMQClient implements MessageClient {
+    private RabbitTemplate rabbitTemplate;
+
+    @Override
+    public void send(ActivityLog activityLog) {
+      rabbitTemplate.convertAndSend(logQueueName, activityLog);
+    }
+  }
+  ``` 
+
+- 두 BOUNDED CONTEXT를 개발하는 팀은 메시징 큐에 담을 데이터의 구조를 합의 하게 되는데 그 큐를 누가 제공하느냐에 따라 데이터 구조가 결정된다.
+  - 예) 카탈로그 시스템에서 큐를 제공한다면 큐에 담기는 내용은 카탈로그 도메인을 따른다.
+  - 카탈로그 도메인은 메시징 큐에 카탈로그와 관련된 메시지를 저장하게 되고, 다른 BOUNDED CONTEXT는 이 큐로부터 필요한 메시지를 수신하는 방식을 사용한다.
+  - 즉, 이 방식은 한쪽에서 메시지를 출판하고 다른 쪽에서 메시지를 구독하는 출판/구독 모델을 따른다.
+  ![image](https://user-images.githubusercontent.com/28394879/136890296-212d0cb6-5cf4-4689-b011-f8c11e2a9eef.png)
+
+- 큐를 추천 시스템에서 제공할 경우 큐를 통해 메시지를 추천 시스템에 전달받는 방식이 된다.
+  - 이 경우, 큐로 인해 비동기로 추천 시스템에 데이터를 전달하는 것을 제외하면 추천 시스템이 제공하는 REST API를 사용해서 데이터를 전달하는 것과 차이가 없다.
+
+**마이크로서비스와 BOUNDED CONTEXT**
+> 마이크로서비스 아키텍처가 단순 유행을 지나 점차 기업에서 자리를 잡아 가고 있다.
+> 넷플리스나 아마존 같은 선도 기업뿐만 아니라 많은 기업이 마이크로서비스 아키텍처를 수용하는 추세이다.
+> 마이크로서비스는 애플리케이션을 작은 서비스로 나누어 개발하는 아키텍처 스타일이다.
+> 개별 서비스를 독립된 프로세스로 실행하고 각 서비스가 REST API나 메시징을 이용해서 통신하는 구조를 갖는다.
+> 이런 마이크로서비스의 특징은 BOUNDED CONTEXT와 잘 어울린다.
+> 각 BOUNDED CONTEXT는 모델의 경계를 형성하는데, BOUNDED CONTEXT를 마이크로서비스로 구현하면 자연스럽게 컨텍스트별로 모델이 분리된다.
+> 코드로 치면 마이크로서비스마다 프로젝트를 생성하므로 BOUNDED CONTEXT마다 프로젝트를 만들게 된다.
+> 이는 코드 수준에서 모델을 분리해서 두 BOUNDED CONTEXT의 모델이 섞이지 않도록 해준다
+> 별도 프로세스로 개발한 BOUNDED CONTEXT는 독립적으로 배포하고 모니터링하고 확장하게 되는데 이 역시 마이크로서비스의 특징이다.
+
+
+
+
+
+   
+   
+
 </details>
 
 <details> <summary> 5. BOUNDED CONTEXT간 관계 </summary>
