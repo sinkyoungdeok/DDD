@@ -4425,3 +4425,35 @@ public class OrderAdminController {
 > 즉, 시스템을 더 잘 이해하거나 시간이 지나면서 컨텍스트 간 관계가 바뀌면 컨텍스트 맵도 함께 바뀐다.
 
 </details>
+
+
+# 10. 이벤트 
+
+<details> <summary> 1. 시스템 간 강결합의 문제 </summary>
+
+</details>
+
+
+<details> <summary> 2. 이벤트 개요 </summary>
+
+</details>
+
+
+<details> <summary> 3. 이벤트, 핸들러, 디스패처 구현 </summary>
+
+</details>
+
+
+<details> <summary> 4. 동기 이벤트 처리 문제 </summary>
+
+</details>
+
+
+<details> <summary> 5. 비동기 이벤트 처리 </summary>
+
+</details>
+
+
+<details> <summary> 6. 이벤트 적용 시 추가 고려사항 </summary>
+
+</details>
