@@ -4736,6 +4736,140 @@ public class OrderAdminController {
 
 <details> <summary> 3. 이벤트, 핸들러, 디스패처 구현 </summary>
 
+## 3. 이벤트, 핸들러, 디스패처 구현
+- 지금까지 이벤트에 대한 내용을 살펴봤는데 실제 이벤트와 관련된 코드를 구현해보자
+- 이벤트와 관련된 코드는 다음과 같다.
+  - 이벤트 클래스
+  - EventHandler: 이벤트 핸들러를 위한 상위 타입으로 모든 핸들러는 이 인터페이스를 구현한다.
+  - Events: 이벤트 디스패처, 이벤트 발행, 이벤트 핸들러 등록, 이벤트를 핸들러에 등록하는 등의 기능을 제공한다.
+
+### 이벤트 클래스
+- 이벤트 자체를 위한 상위 타입은 존재하지 않는다.
+  - 원하는 클래스를 이벤트로 사용할 것이다.
+  - 이벤트는 과거에 벌어진 상태 변화나 사건을 의미하므로 이벤트 클래스의 이름을 결정할 때에는 과거 시제를 사용해야 한다는 점만 유의하면 된다.
+  - OrderCanceledEvent와 같이 클래스 이름 뒤에 접미사로 Event를 사용해야 이벤트로 사용하는 클래스라는 것을 명시적으로 표현할 수도 있고 OrderCanceled처럼 간결함을 위해 과거 시제만 사용할 수도 있다.
+- 이벤트 구성에서 설명한 것처럼 이벤트 클래스는 이벤트를 처리하는 데 필요한 최소한의 데이터를 포함해야 한다.
+  - 예) 주문 취소 이벤트는 적어도 주문번호를 포함해야 관련 핸들러에서 후속 처리를 할 수 있다.
+  ```java
+  public class OrderCanceledEvent {
+    // 이벤트는 핸들러에서 이벤트를 처리하는 데 필요한 데이터를 포함한다.
+    private String orderNumber;
+    public OrderCanceledEvent(String number) {
+      this.orderNumber = number;
+    }
+
+    public String getOrderNumber() { return orderNumber; }
+  }
+  ``` 
+- 모든 이벤트가 공동으로 갖는 프로퍼티가 존재한다면 관련 상위 클래스를 만들 수도 있다.
+  - 예) 모든 이벤트가 발생 시간을 갖도록 하려면 다음 코드와 같은 상위 클래스를 만들고 각 이벤트 클래스가 상속받도록 할 수 있다.
+  ```java
+  public abstract class Event {
+    private long timestamp;
+
+    public Event() {
+      this.timestamp = System.currentTimeMillis();
+    }
+    
+    public long getTimestamp() {
+      return timestamp;
+    }
+  }
+  ``` 
+  - 이제 발생 시간이 필요한 이벤트 클래스는 다음 코드처럼 Event 클래스를 상속 받아 구현하면 된다.
+  ```java
+  // 발생 시간이 필요한 각 이벤트 클래스는 Event를 상속받아 구현한다.
+  public class OrderCancelEvent extends Event {
+    private String orderNumber;
+    public OrderCanceledEvent(String number) {
+      super();
+      this.orderNumber = number;
+    }
+  }
+  ``` 
+
+### EventHandler 인터페이스
+- EventHandler 인터페이스는 이벤트 핸들러를 위한 상위 인터페이스이다. 
+  - 여기에서 사용할 인터페이스는 다음과 같다.
+  ```java
+  package com.myshop.common.event;
+
+  import net.jodah.typetools.TypeResolver;
+
+  public interface EventHandler<T> {
+    void handle(T event);
+
+    default boolean canHandle(Object event) {
+      Class<?>[] typeArgs = TypeResolver.resolverRawArguments(
+        EventHandler.class, this.getClass());
+      return typeArgs[0].isAssignableFrom(event.getClass());
+    }
+  }
+  ``` 
+- EventHandler 인터페이스를 상속받는 클래스는 handle() 메서드를 이용해서 필요한 기능을 구현하면 된다.
+  - canHandle() 메서드는 핸들러가 이벤트를 처리할 수 있는지 여부를 검사한다.
+  - 위 코드의 canHandle() 메서드는 자바8의 디폴트 메시지를 이용해서 기본 기능을 구현했다.
+  - 이 기능은 파라미터로 받은 event의 타입이 T의 파라미터화 타입에 할당 가능하면 true를 리턴한다.
+  - 예) 다음과 같이 타입 파라미터로 PasswordChangedEvent를 사용한 EventHandler 임의 클래스 구현이 있다고 하자.
+  ```java
+  EventHandler<?> handler = new EventHandler<PasswordChangedEvent>() {
+    @Override
+    public void handle(PasswordChangedEvent event) {...생략}
+  };
+  boolean result = handler.canHandle(new PasswordChangedEvent(someId, newPw));
+  ``` 
+
+- 이때, handler의 파라미터화 타입은 PasswordChangedEvent이므로 canHandle() 메서드에 PasswordChangedEvent 객체를 파라미터로 전달하면 true를 리턴한다.
+- canHandle() 메서드를 구현할 때 사용하는 TypeResolver는 EventHandler의 파라미터화 타입을 구하는 기능을 제공한다. 
+
+> TypeResolver의 코드는 https://github.com/jhalterman/typetools 사이트에서 구할 수 있고 
+> 이 페이지의 예제 코드에도 포함되어 있다.
+
+
+- 자바 8 이전 버전이라면 다음과 같이 EventHandler 인터페이스와 이 인터페이스를 구현한 추상 클래스를 구현하면 된다.
+  ```java
+  public interface EventHandler<T> {
+    void handle(T event);
+    boolean canHandle(Object event);
+  }
+  
+  public abstract class AbstractEventHandler<T> implements EventHandler<T> {
+    @Override
+    public boolean canHandle(Object event) {
+      Class<?>[] typeArgs = TypeResolver.resolveRawArguments(
+        EventHandler.class, this.getClass());
+      return typeArgs[0].isAssignableFrom(event.getClass());
+    }
+  }
+  ``` 
+
+- 파라미터화 타입 대신에 다른 타입을 이용해서 처리 가능 여부를 검사하고 싶다면, 핸들러 구현 클래스에서 canHandle() 메서드를 재정의한다.
+
+### 이벤트 디스패처인 Events 구현
+- 이벤트 디스패처인 Events를 구현할 차례이다.
+  - 도메인을 사용하는 응용 서비스는 이벤트를 받아 처리할 핸들러를 Evnets.handle()로 등록하고, 도메인 기능을 실행한다.
+  - 이벤트 핸들러 등록을 수비게 하기 위해 다음과 같이 정적 메서드를 이용해서 구현했다.
+  ```java
+  public class CancelOrderService {
+    private OrderRepository orderRepository;
+    private RefundService refundService;
+
+    @Transactional
+    public void cancel(OrderNo orderNo) {
+      Events.handle(
+          (OrderCanceledEvent evt) -> refundService.refund(evt.getOrderNumber());
+      );
+
+      Order order = findOrder(orderNo);
+      order.cancel();
+      
+      Events.reset();
+    }
+  }
+  ``` 
+
+
+
 </details>
 
 
