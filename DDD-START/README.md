@@ -4562,6 +4562,175 @@ public class OrderAdminController {
 
 <details> <summary> 2. 이벤트 개요 </summary>
 
+## 2. 이벤트 개요
+- 이 절에서 사용하는 이벤트(event)라는 용어는 '과거에 벌어진 어떤 것' 을 뜻한다.
+  - 예) 사용자가 암호를 변경한 것을 '암호를 변경했음 이벤트' 라고 부를 수 있다.
+  - 예) 주문을 취소했다면 '주문을 취소했음 이벤트' 가 발생했다고 할 수 있다.
+- 웹 브라우저에서 자바 스크립트 코드를 작성한 개발자라면 이미 이벤트에 익숙할 것이다.
+  - UI 개발에서 모든 UI 컴포넌트는 관련 이벤트를 발생시킨다.
+  - 예) 버튼을 클릭하면 '버튼 클릭됨 이벤트' 가 발생하고, 스크롤을 하면 '스크롤됨 이벤트' 가 발생한다.
+- 이벤트가 발생한다는 것은 상태가 변경됐다는 것을 의미한다.
+  - '암호 변경됨 이벤트'가 발생한 이유는 회원의 암호를 변경했기 때문이다.
+  - '주문 취소됨 이벤트'가 발생한 이유는 주문이 취소 상태로 바뀌었기 때문이다.
+- 이벤트는 발생하는 것에서 끝나지 않는다.
+  - 이벤트가 발생하면 그 이벤트에 반응하여 원하는 동작을 수행하는 기능을 구현한다.
+  - 다음 자바스크립트는 jQuery 를 이용해서 작성한 코드이다.
+  - 이 코드에서 click()에 전달한 함수는 'myBtn' 버튼에서 '클림 됨 이벤트'가 발생하면 그 이벤트에 반응하여 경고 창을 출력한다.
+  ```javascript
+  $('#myBtn').click(function(evt) {
+    alert("경고");
+  });
+  ``` 
+
+- 도메인 모델에서도 UI 컴포넌트와 유사하게 도메인의 상태 변경을 이벤트로 표현할 수 있다.
+  - 보통 '~할 때', '~가 발생하면', '만약-하면' 과 같은 요구사항은 도메인의 상태 변경과 관련된 경우가 밚고 이런 요구사항을 이벤트를 이용해서 구현할 수 있다.
+  - 예) '주문을 취소할 때 이메일을 보낸다' 라는 요구사항에서 '주문을 취소할 때'는 주문이 취소 상태로 바뀌는 것을 의미하므로 '주문 취소됨 이벤트'를 활용해서 구현할 수 있다.
+
+### 이벤트 관련 구성요소
+- 도메인 모델에 이벤트를 도입하려면 아래 그림과 같은 네 개의 구성요소를 구현해야 한다.  
+
+  ![image](https://user-images.githubusercontent.com/28394879/137086328-14d3023c-7c42-406b-9e48-98729a3bb464.png)
+
+- 도메인 모델에서 이벤트 주체는 엔티티, 밸류, 도메인 서비스와 같은 도메인 객체이다.
+  - 이들 도메인 객체는 도메인 로직을 실행해서 상태가 바뀌면 관련 이벤트를 발생한다.
+- 이벤트 핸들러(handler)는 이벤트 생성 주체가 발생한 이벤트에 반응한다.
+  - 이벤트 핸들러는 생성 주체가 발생한 이벤트를 전달받아 이벤트에 담긴 데이터를 이용해서 원하는 기능을 실행한다.
+  - 예) '주문 취소됨 이벤트'를 받는 이벤트 핸들러는 해당 주문의 주문자에게 SMS로 주문 취소 사실을 통지할 수 있다.
+- 이벤트 생성 주체와 이벤트 핸들러를 연결해 주는 것이 이벤트 디스패처(dispatcher)이다.
+  - 이벤트 생성 주체는 이벤트를 생성해서 디스패처에 이벤트를 전달한다.
+  - 이벤트를 전달받은 디스패처는 해당 이벤트를 처리할 수 있는 핸들러에 이벤트를 전파한다.
+  - 이벤트 디스패처의 구현 방식에 따라 이벤트 생성과 처리를 동기나 비동기로 실행하게 된다.
+
+### 이벤트의 구성
+- 이벤트는 발생한 이벤트에 대한 정보를 담는다. 
+- 이 정보는 다음을 포함한다.
+  - 이벤트 종류: 클래스 이름으로 이벤트 종류를 표현
+  - 이벤트 발생 시간
+  - 추가 데이터: 주문번호, 신규 배송지 정보 등 이벤트와 관련된 정보 
+- 배송지를 변경할 때 발생하는 이벤트를 생각해보자.
+  - 이 이벤트를 위한 클래스는 다음과 같이 작성할 수 있다.
+  ```java
+  public class ShippingInfoChangedEvent {
+    private String orderNumber;
+    private long timestamp;
+    private ShippingInfo newShippingInfo;
+
+    // 생성자, getter
+  }
+  ``` 
+
+- 클래스 이름을 보면 'Changed' 라는 과거 시제를 사용했다.
+  - 이벤트는 현재 기준으로 (바로 직전이라도) 과거에 벌어진 것을 표현하기 때문에 이벤트 이름에는 과거 시제를 사용한다.
+- 이 이벤트를 발생하는 주체는 Order 애그리거트이다.
+  - Order 애그리거트의 배송지 변경 기능을 구현한 메서드는 다음 코드처럼 배송지 정보를 변경한 뒤에 이벤트 디스패처를 사용해서 이 이벤트를 발생시킬 것이다. 
+  - 이 코드에서 Event.raise()는 디스패처를 통해 이벤트를 전파하는 기능을 제공하는데 이 기능의 구현과 관련된 내용은 뒤에서 살펴보도록 하자.
+  ```java
+  public class Order {
+
+    public void changeShippingInfo(ShippingInfo newShippingInfo) {
+      verifyNotYetShipped();
+      setShippingInfo(newShippingInfo);
+      Events.raise(new ShippingInfoChangedEvent(member, newShippingInfo));
+    }
+  }
+  ```      
+- ShippingInfoChangedEvent 를 처리하는 핸들러는 디스패처로부터 이벤트를 전달받아 필요한 작업을 수행한다.
+  - 예) 변경된 배송지 정볼르 물류 서비스에 재전송하는 핸들러는 다음과 같이 구현할 수 있다.
+  ```java
+  public class ShippingInfoChangedHandler implements EventHandler<ShippingInfoChangedEvent> {
+
+    @Override
+    public void handle(ShippingInfoChangedEvent evt) {
+      shippingInfoSynchronizer.sync(
+        evt.getOrderNumber(),
+        evt.getNewShippingInfo());
+    }
+  }
+  ``` 
+
+- 이벤트는 이벤트 핸들러가 작업을 수행하는 데 필요한 최소한의 데이터를 담아야 한다.
+  - 이 데이터가 부족할 경우 핸들러는 필요한 데이터를 읽기 위해 관련 API를 호출하거나 DB에서 데이터를 직접 읽어와야 한다.
+  - 예) ShippingInfoChangedEvent가 바뀐 배송지 정보를 포함하고 있지 않을 때
+  - 이 핸들러가 같은 VM에서 동작하고 있다면 다음과 같이 주문 데이터를 로딩해서 배송지 정보를 추출해야 한다.
+  ```java
+  public class ShippingInfoChangedHandler implements EventHandler<ShippingInfoChangedEvent> {
+    
+    @Override
+    public void handle(ShippingInfoChangedEvent evt) {
+      // 이벤트가 필요한 데이터를 담고 있지 않으면,
+      // 이벤트 핸들러는 리포지터리, 조회 API, 직접 DB 접근 등의
+      // 방식을 통해 필요한 데이터를 조회해야 한다.
+      Order order = orderRepository.findById(evt.getOrderNo());
+      shippingInfoSynchronizer.sync(
+        order.getNumber().getValue(),
+        order.getShippingInfo());
+    }
+  }
+  ``` 
+- 이벤트는 데이터를 담아야 하지만 그렇다고 이벤트 자체와 관련 없는 데이터를 포함할 필요는 없다.
+  - 배송지 정보를 변경해서 발생시킨 ShippingInfoChangedEvent가 이벤트 발생과 직접 관련된 바뀐 배송지 정보를 포함하는 것은 맞지만 배송지 정보 변경과 전혀 관련 없는 주문 상품 번호와 개수를 담을 필요는 없다.
+
+
+### 이벤트 용도
+- 이벤트는 크게 두가지 용도로 쓰인다.
+- 첫번째 용도는 트리거이다.
+  - 도메인의 상태가 바뀔 때 다른 후처리를 해야 할 경우 후처리를 실행하기 위한 트리거로 이벤트를 사용할 수 있다.
+  - 주문의 경우 주문 취소 이벤트가 트리거가 될 수 있다.
+  - 주문을 취소하면 환불을 처리해야 하는데, 이 때 환불 처리를 위한 트리거로 주문 취소 이벤트를 사용할 수 있다.
+  
+  ![image](https://user-images.githubusercontent.com/28394879/137092536-9e0c51e3-817e-4cdf-b133-ee6048d7d9e8.png)
+
+  - 예매 결과를 SMS로 통지할 때도 이벤트를 트리거로 사용할 수 있다.
+    - 예매 도메인은 예매 완료 이벤트를 발생시키고 이 이벤트 핸들러에서 SMS를 발송시키는 방식으로 구현할 수 있다.
+
+
+- 이벤트의 두 번째 용도는 서로 다른 시스템 간의 데이터 동기화이다.
+  - 배송지를 변경하면 외부 배송 서비스에 바뀐 배송지 정보를 전송해야 한다.
+  - 이 경우, 주문 도메인은 배송지 변경 이벤트를 발생시키고 이벤트 핸들러는 외부 배송 서비스와 배송지 정보를 동기화한다.
+
+### 이벤트 장점
+- 이벤트를 사용하면 다음 코드와 같이 서로 다른 도메인 로직이 섞이는 것을 방지할 수 있다. 
+  ```java
+  public class Order {
+
+    public void cancel(RefundService refundService) {
+      verifyNotYetShipped();
+      this.state = OrderState.CANCELED;
+
+      this.refundStatus = State.REFUND_STATED;
+      try {
+        refundService.refund(getPaymentId());
+        this.refundStatus = State.REFUND_COMPLETED;
+      } catch (Exception ex) {
+        ...
+      }
+    }
+  }
+  // 위 코드에서 이벤트로 서로 다른 도메인 로직이 섞이는 것을 방지 한 코드로 변경한게 아래 코드 
+  
+  public class Order {
+    
+    public void cancel() { // 구매 취소에 더 이상 환불 로직이 없음
+      verifyNotYetShipped();
+      this.state = OrderState.CANCELED;
+
+      this.refundStatus = State.REFUND_STATED;
+      Events.raise(new OrderCanceledEvent(number.getNumber()));
+    }
+  }
+  ```
+
+- 위 코들르 보면 구매 취소 로직에 이벤트를 적용함으로써 환불 로직이 없어진 것을 알 수 있다.
+  - cancel() 메서드에서 환불 서비스를 실행하기 위해 사용한 파라미터도 없어졌다.
+  - 환불 실행 로직은 주문 취소 이벤트를 받는 이벤트 핸들러로 이동하게 된다.
+  - 이를 통해 이벤트를 사용해서 주문 도메인에서 결제(환불) 도메인으로의 의존을 제거했다.
+- 이벤트 핸들러를 사용하면 기능 확장도 용이하다.
+  - 구매 취소 시 환불과 함께 이벤트로 취소 내용을 보내고 싶다면 이메일 발송을 처리하는 핸들러를 구현하고 디스페처에 등록하면 된다.
+  - 기능을 확장해도 구매 도메인 로직은 수정할 필요가 없다.
+  ![image](https://user-images.githubusercontent.com/28394879/137095439-ad39b60c-0843-44a3-a911-52d1bc4d41bd.png)
+
+
+
 </details>
 
 
