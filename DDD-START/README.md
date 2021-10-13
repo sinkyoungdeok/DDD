@@ -4431,6 +4431,132 @@ public class OrderAdminController {
 
 <details> <summary> 1. 시스템 간 강결합의 문제 </summary>
 
+## 1. 시스템 간 강결합의 문제
+
+- 쇼핑몰에서 구매를 취소하면 환불을 처리해야 한다.
+  - 이때 환불 기능을 실행하는 주체는 주문 도메인 엔티티가 될 수 있다.
+  - 도메인 객체에서 환불 기능을 실행하려면 다음 코드처럼 환불 기능을 제공하는 도메인 서비스를 파라미터로 전달받고 취소 도메인 기능에서 도메인 서비스를 실행하게 된다.
+  ```java
+  public class Order {
+    ...
+    // 외부 서비스를 실행하기 위해 도메인 서비스를 파라미터로 전달받음
+    public void cancel(ReFundService refundService) {
+      verifyNotYetShipped();
+      this.state = OrderState.CANCELED;
+
+      this.refundStatus = State.REFUND_STARTED;
+      try {
+        refundService.refund(getPaymentId());
+        this.refundStatus = State.REFUND_COMPLETED;
+      } catch (Exception ex) {
+        ??
+      }
+    }
+  }
+  ...
+  ``` 
+- 응용 서비스에서 환불 기능을 실행할 수도 있다.
+  ```java
+  public class CancelOrderService {
+    private RefundService refundService;
+
+    @Transactional
+    public void cancel(OrderNo orderNo) {
+      Order order = findOrder(orderNo);
+      order.cancel();
+
+      order.refundStarted();
+      try {
+        refundService.refund(order.getPaymentId());
+        order.refundCompleted();
+      } catch(Exception ex) {
+        ???
+      }
+    }
+    ...
+  }
+  ``` 
+- 보통 결제 시스템은 외부에 존재하므로 RefundService는 외부의 환불 시스템 서비스를 호출하는데, 이때 두 가지 문제가 발생한다.
+
+- 첫번째 
+  - 첫 번째 문제는 외부 서비스가 정상이 아닐 경우 트랜잭션 처리를 어떻게 해야 할지 애매하다는 것이다.
+  - 환불 기능을 실행하는 과정에서 익셉션이 발생하면 트랜잭션을 롤백해야 할까? 아니면 일단 커밋해야 할까?
+  - 외부의 환불 서비스를 실행하는 과정에서 익셉션이 발생하면 환불에 실패했으므로 주문 취소 트랜잭션을 롤백하는 것이 맞는 것으로 보인다.
+  - 하지만, 반드시 트랜잭션을 롤백해야 하는 것은 아니다.
+  - 주문 취소 상태로 변경하고 환불만 나중에 다시 시도하는 방식으로 처리할 수도 있다.
+- 두번째
+  - 두 번째 문제는 성능에 대한 것이다.
+  - 환불을 처리하는 외부 시스템이 응답 시간이 길어지면 그만큼 대기 시간이 발생한다.
+  - 환불 처리 기능이 30초가 걸리면 주문 취소 기능은 30초만큼 대기 시간이 증가한다.
+  - 즉, 외부 서비스 성능에 직접적인 영향을 받는 문제가 있다.
+  ```java
+  @Transactional
+  public void cancel(OrderNo orderNo) {
+    Order order = findOrder(orderNo);
+    order.cancel();
+
+    order.refundStarted();
+    try {
+      refundService.refund(order.getPaymentId()); // 외부 서비스 성능에 직접 영향을 받는다.
+      order.refundCompleted();
+    } catch (Exception ex) {
+      ???
+    }
+  }
+  ``` 
+
+
+- 두가지 문제 외에 도메인 객체에 서비스를 전달하면 추가로 설계상 문제가 나타낱 수 있다.
+  - 우선, 다음과 같이 주문 로직과 결제 로직이 섞이는 문제가 있다.
+  ```java
+  public class Order{
+
+    public void cancel(RefundService refundService) {
+      verifyNotYetShipped(); // 주문 로직 
+      this.state = OrderState.CANCELED; // 주문 로직
+
+      /* 결제 로직 */
+      this.refundStatus = State.REFUND_STATED;
+      try {
+        refundSvc.refund(getPaymentId());
+        this.refundStatus = State.REFUND_COMPLETED;
+      } catch (Exception ex) {
+        ...
+      }
+      /* 결제 로직 */
+    }
+  }
+  ``` 
+
+- Order는 주문을 표현하는 도메인 객체인데 결제 도메인의 환불 관련 로직이 뒤섞이게 된다.
+  - 이는 환불 기능이 바뀌면 Order도 영향을 받게 된다는 것을 의미한다.
+  - 주문 도메인 객체의 코드를 결제 도메인 떄문에 변경할지도 모르는 상황은 좋아 보이지 않는다.
+- 도메인 객체에 서비스를 전달할 때 또 다른 문제는 기능을 추가할 때 발생한다.
+  - 만약 주문을 취소한 뒤에 환불뿐만 아니라 취소했다는 내용을 통지해야 한다면 어떻게 될까?
+  - 환불 도메인 서비스와 동일하게 파라미터로 통지 서비스를 받도록 구현하면 앞서 언급한 로직이 섞이는 문제가 더 커지고 트랜잭션 처리가 더 복잡해진다.
+  - 게다가 영향을 주는 외부 서비스가 두 개나 증가했다.
+  ```java
+  public class Order {
+    // 기능을 추가할 때마다 파라미터가 함께 추가되면
+    // 다른 로직이 더 많이 섞이고, 트랜잭션 처리가 더 복잡해진다.
+    public void cancel(RefundService refundService, NotiService notiSvc) {
+      verifyNotYetShipped();
+      this.state = OrderState.CANCELED;
+      ...
+      // 주문+결제+통지 로직이 섞임
+      // refundService는 성공하고, notiSvc는 실패하면?
+      // refundService와 notiSvc 중 무엇을 먼저 처리하나? 
+    }
+  }
+  ``` 
+
+- 지금까지 언급한 문제가 발생하는 이유는 주문 BOUNDED CONTEXT와 결제 BOUNDED CONTEXT간의 강결합(high coupling) 때문이다.
+  - 주문이 결제와 강하게 결합되어 있어서 주문 BOUNDED CONTEXT가 결제 BOUNDED CONTEXT에 영향을 받게 되는 것이다. 
+- 이런 강한 결합을 없앨 수 있는 방법이 있는게 그것은 바로 이벤트를 사용하는 것이다.
+  - 특히 비동기 이벤트를 사용하면 두 시스템 간의 결합을 크게 낮출 수 있다.
+  - 한번 익숙해지면 모든 연동을 이벤트와 비동기로 처리하고 싶을 정도로 강력하고 매력적인 것이 이벤트이다.
+  - 지금부터 이벤트에 대해 살펴보도록 하자.
+
 </details>
 
 
