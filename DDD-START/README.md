@@ -5048,6 +5048,31 @@ public class OrderAdminController {
 
 <details> <summary> 4. 동기 이벤트 처리 문제 </summary>
 
+## 4. 동기 이벤트 처리 문제
+- 이벤트를 사용해서 강결합 문제는 해소했지만 아직 남아 있는 문제가 하나 있다.
+  - 바로 외부 서비스에 영향을 받는 문제이다. 아래 코드를 보자.
+  ```java
+  @Transactional // 외부 연동 과정에서 익셉션이 발생하면 트랜잭션 처리는?
+  public void cancel(OrderNo orderNo) {
+    Events.handle(
+      // refundService.refund()가 오래 걸리면?
+      (OrderCanceledEvent evt) -> refundService.refund(evt.getOrderNumber()));
+
+      Order order = findOrder(orderNo);
+      order.cancel();
+  }
+  ``` 
+- 이 코드에서 refundService.refund()가 외부의 환불 서비스와 연동한다고 가정해보자.
+  - 만약 외부 환불 기능이 갑자기 느려지면 cancel() 메서드도 함께 느려지게 된다.
+  - 이는 외부 서비스의 성능 지하가 바로 내 시스템의 성능 저하로 연결된다는 것을 의미한다.
+- 성능 저하뿐만 아니라 트랜잭션도 문제가 된다.
+  - refundService.refund()에서 익셉션이 발생하면 cancel() 메서드의 트랜잭션을 롤백해야 할까?
+  - 트랜잭션을 롤백하면 구매 취소 기능을 롤백하는 것이므로 구매 취소에 실패하는 것이다.
+  - 생각해 볼 만한 것은 외부의 환불 서비스 실행에 실패했다고 해서 반드시 트랜잭션을 롤백해야 하는지에 대한 문제이다.
+  - 일단 구매 취소 자체는 처리하고 환불만 재처리하거나 수동으로 처리할 수도 있다.
+- 외부 시스템과의 연동을 동기로 처리할 때 발생하는 성능과 트랜잭션 범위 문제를 해소하는 방법 중 하나가 이벤트를 비동기로 처리하는 것이다. 
+  - 이어서 비동기 이벤트 처리에 대해 알아보자.
+
 </details>
 
 
