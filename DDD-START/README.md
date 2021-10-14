@@ -4848,7 +4848,7 @@ public class OrderAdminController {
 ### 이벤트 디스패처인 Events 구현
 - 이벤트 디스패처인 Events를 구현할 차례이다.
   - 도메인을 사용하는 응용 서비스는 이벤트를 받아 처리할 핸들러를 Evnets.handle()로 등록하고, 도메인 기능을 실행한다.
-  - 이벤트 핸들러 등록을 수비게 하기 위해 다음과 같이 정적 메서드를 이용해서 구현했다.
+  - 이벤트 핸들러 등록을 쉽게 하기 위해 다음과 같이 정적 메서드를 이용해서 구현했다.
   ```java
   public class CancelOrderService {
     private OrderRepository orderRepository;
@@ -4868,7 +4868,180 @@ public class OrderAdminController {
   }
   ``` 
 
+- 이 코드는 OrderCanceledEvent가 발생하면 Events.handle() 메서드에 전달한 EventHandler를 이용해서 이벤트를 처리하게 된다.
+  - 뒤에서 언급하겠지만 Events는 내부적으로 핸들러 목록을 유지하기 위해 ThreadLocal을 사용한다.
+  - Events.handle() 메서드는 인자로 전달받은 EventHandler를 List에 보관한다.
+  - 이벤트가 발생하면 이벤트를 처리할 EventHandler를 List에서 찾아 EventHandler의 handle() 메서드를 호출해서 이벤트를 처리한다.
+- 이벤트를 발생시킬 때에는 Events.raise() 메서드를 사용한다.
+  - 예) Order#cancel() 메서드는 다음과 같이 구매 취소 로직을 수행한 뒤 Events.raise()를 이용해서 이벤트를 발생시킨다.
+  ```java
+  public class Order {
 
+    public void cancel() {
+      verifyNotYetShipped();
+      this.state = OrderState.CANCELED;
+      Events.raise(new OrderCanceledEvent(number.getNumber()));
+    }
+  }
+  ``` 
+- Events.raise()를 이용해서 이벤트를 발생시키면 Events.raise() 메서드는 이벤트를 처리할 핸들러를 찾아 handle() 메서드를 실행한다.
+- Events 클래스의 구현 코드는 아래코드와 같다.
+  - 이 코드를 이해하려면 ThreadLocal에 대한 이해가 필요하다.
+  - ThreadLocal을 처음 접한다면 개인 블로그에 정리한 http://javacan.tistory.com/entry/ThreadLocalUsage 문서를 읽어 보면 도움이 될 것이다.
+  ```java
+  package com.myshop.common.event;
+
+  import java.util.ArrayList;
+  import java.util.List;
+
+  public class Events {
+    private static ThreadLocal<List<EventHandler<?>>> handlers = new ThreadLocal<>(); // EventHandler 목록을 보관하는 ThreadLocal 변수를 생성한다.
+    private static ThreadLocal<Boolean> publishing = new ThreadLocal<Boolean>() {
+      @Override
+      protected Boolean initialValue() {
+        return Boolean.FALSE;
+      }
+    }; // 이벤트를 처리 중인지 여부를 보관하는 ThreadLocal 변수를 생성한다.
+
+    public static void raise(Object event) { // 파라미터로 전달받은 이벤트를 처리한다.
+      if (publishing.get()) return; // 이벤트를 이미 출판 중이면 출판하지 않는다. 이는 이벤트 핸들러에서 이벤트를 출판하려 할 때 발생하는 무한 재귀 문제를 방지한다.
+
+      try {
+        publishing.set(Boolean.TRUE); // 출판 상태로 변경한다.
+
+        List<EventHandler<?>> eventHandlers = handlers.get();
+        if(eventHandlers == null) return;
+
+        for(EventHandler handler : eventHandlers) { // handlers에 담긴 EventHandler가 파라미터로 전달받은 이벤트를 처리할 수 있는지 확인하고, 처리 가능하면 핸들러의 handle() 메서드에 이벤트 객체를 전달한다. 
+          if(handler.canHandle(event)) {
+            handler.handle(event);
+          }
+        }
+      } finally {
+        publishing.set(Boolean.FALSE); // 핸들러의 이벤트 처리가 끝나면 출판 진행 상태를 False로 변경한다.
+      }
+    }
+
+    public static void handle(EventHandler<?> handler) { // 이벤트 핸들러를 등록하는 handle() 메서드를 구현한다.
+      if(publishing.get()) return; // 이벤트를 처리 중이면 등록하지 않는다.
+
+      List<EventHandler<?>> eventHandlers = handlers.get(); // handlers에 보관된 List를 구한다.
+      if(eventHandlers == null) { // eventHandlers가 null이면 새로운 List 객체를 생성하고 handlers의 값으로 설정한다.
+        eventHandlers = new ArrayList<>();
+        handlers.set(eventHandlers);
+      }
+      eventHandlers.add(handler); // List에 핸들러를 등록한다.
+    }
+
+    public static void reset() { // handlers에 보관된 List 객체를 삭제한다. 
+      if (!publishing.get()) {
+        handlers.remove();
+      }
+    }
+  }
+  ``` 
+
+- Events는 핸들러 목록을 유지하기 위해 ThreadLocal 변수를 사용한다. 
+  - 톰캣과 같은 웹 애플리케이션 서버는 스레드를 재사용하므로 ThreadLocal에 보관한 값을 제거하지 않으면 기대했던 것과 다르게 코드가 동작할 수 있다.
+  - 예) 사용자의 요청을 처리한 뒤 Event.reset()을 실행하지 않으면 스레드 handlers가 담고 있는 List에 계속 핸들러 객체가 쌓이게 되어 결국 메모리 부족 에러(OOME, OutOfMemberError)이 발생하게 된다.
+  - 따라서, 이벤트 핸들러를 등록하는 응용 서비스는 다음과 같이 마지막에 Events.reset() 메서드를 실행해야 한다.
+  ```java
+  @Transactional
+  public void cancel(OrderNo orderNo) {
+    Events.handle(
+      (OrderCanceledEvent evt) -> refundService.refund(evt.getOrderNumber())
+    );
+    
+    Order order = findOrder(orderNo);
+    order.cancel();
+
+    Events.reset(); // ThreadLocal 변수를 초기화해서 OOME가 발생하지 않도록 함
+  }
+  ``` 
+- 스프링 프레임워크의 AOP를 사용해서 모든 서비스의 public 메서드의 실행이 끝나면 Events.reset()을 실행하도록 할 수도 있다. 
+  - 이에 대한 내용은 잠시 뒤에 살펴 보자.
+
+
+### 흐름 정리
+- 이벤트 처리 흐름을 다음 그림에 시퀀스 다이어그램으로 정리했다.
+  
+  ![image](https://user-images.githubusercontent.com/28394879/137253760-c82bbeb7-fa63-43d1-9c41-54940dfbd68a.png)
+
+- 이벤트 처리 흐름
+  1. 이벤트 처리에 필요한 이벤트 핸들러를 생성한다.
+  2. 이벤트 발생 전에 이벤트 핸들러를 Events.handle() 메서드를 이용해서 등록한다.
+  3. 이벤트를 발생하는 도메인 기능을 실행한다.
+  4. 도메인은 Events.raise()를 이용해서 이벤트를 발생한다.
+  5. Events.raise()는 등록된 핸들러의 canHandle()을 이용해서 이벤트를 처리할 수 있는지 확인한다.
+  6. 핸들러가 이벤트를 처리할 수 있다면 handle() 메서드를 이용해서 이벤트를 처리한다.
+  7. Events.raise() 실행을 끝내고 리턴한다.
+  8. 도메인 기능 실행을 끝내고 리턴한다.
+  9. Events.reset()을 이용해서 ThreadLocal을 초기화한다.
+
+- 코드 흐름을 보면 응용 서비스와 동일한 트랜잭션 범위에서 핸들러의 handle()이 실행되는 것을 알 수 있다.
+  - 즉, 도메인의 상태 변경과 이벤트 핸들러는 같은 트랜잭션 범위에서 실행된다.
+
+### AOP를 이용한 Events.reset() 실행
+- 응용 서비스가 끝나면 ThreadLocal에 등록된 핸들러 목록을 초기화하기 위해 Events.reset() 메서드를 실행한다.
+  - 모든 응용 서비스마다 메서드 말미에 Events.reset()을 실행하는 코드를 넣는 것은 중복에 해당한다.
+  - 이런 류의 중복을 없앨 때 적합한 것이 바로 AOP이다.
+  - 스프링 AOP를 이용해서 Events.reset()을 실행하는 구현코드는 다음과 같다.
+  ```java
+  package com.myshop.common.event;
+
+  @Aspect
+  @Order(0) // @Order를 이용해서 우선순위를 0으로 지정한다. 이를 통해 트랜잭션 관련 AOP보다 우선순위를 높여 이 AOP가 먼저 적용되도록 설정한다. 
+  @Component
+  public class EventsResetProcessor {
+    private ThreadLocal<Integer> nestedCount = new ThreadLocal<Integer>() { // 서비스 메서드의 중첩 실행 개수를 저장하기 위한 ThreadLocal 변수를 생성한다.
+      @Override
+      protected Integer initialValue() {
+        return new Integer(0);
+      }
+    }; 
+
+  @Around( // @Around Aspect를 이용해서 AOP를 구현한다. 적용 대상은 com.myshop 패키지 및 그 하위 패키지에 위치한 @Service가 붙은 빈 객체이다.
+    "@target(org.springframework.stereotype.Service) and within(com.myshop..*)")
+    public Object doReset(ProceedingJoinPoint joinPoint) throws Throwable {
+      nestedCount.set(nestedCount.get() + 1); // 중첩 실행 횟수를 1증가한다.
+      try {
+        return joinPoint.proceed(); // 대상 메서드를 실행한다.
+      } finally {
+        nestedCount.set(nestedCount.get() - 1); // 중첩 실행 횟수를 1감소한다.
+        if (nestedCount.get() == 0) { // 중첩 실행 횟수가 0이면 Events.reset()을 실행한다.
+          Events.reset();
+        }
+      }
+    }
+  ``` 
+- 이 AOP를 적용하면 다음과 같이 @Service가 붙은 클래스는 이제 Events.reset()을 명시적으로 호출하지 않아도 된다.
+  ```java
+  @Service
+  public class CancelOrderService {
+    private OrderRepository orderRepository;
+    private RefundService refundService;
+
+    @Transactional
+    public void cancel(OrderNo orderNo) {
+      Events.handle(
+        (OrderCancelEvent evt) -> refundService.refund(evt.getOrderNumber()));
+
+      
+      Order order = findOrder(orderNo);
+      order.cancel();
+
+      // AOP를 이용해서 Events.reset()을 실행 
+    }
+  }
+  ``` 
+
+- 스프링에서 제공하는 @Service 애노테이션을 이용해서 응용 서비스를 지정했는데 @Service를 사용하지 않을 경우 @Around의 포인트컷에 @target 대신 execution() 명시자를 사용해도 된다.
+  ```java
+  @Around("execution(public * com.myshop..*Serice.*(..))")
+  public Object doReset(ProceedingJoinPoint joinPoint) throws Throwable {
+    ...
+  }
+  ``` 
 
 </details>
 
