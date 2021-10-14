@@ -5078,6 +5078,169 @@ public class OrderAdminController {
 
 <details> <summary> 5. 비동기 이벤트 처리 </summary>
 
+## 5. 비동기 이벤트 처리
+
+- 회원 가입 신청을 하면 검증을 위해 이메일을 보내는 서비스가 많다.
+  - 회원 가입 신청을 하자마자 바로 내 메일함에 검증 이메일이 도착해야 할 필요는 없다.
+  - 이메일이 수초 후에 도착한다고 해서 문제될 것이 없다.
+  - 10~20초 후에 이메일이 도착해도 되고, 심지어 이메일을 받지 못하면 다시 받을 수 있는 기능을 이용해서 다시 받을 수도 있다.
+- 비슷하게 주문을 취소하자마자 바로 결제를 취소하지 않아도 된다.
+  - 많은 고객은 수분 내에 결제 취소가 이루어지면 만족한다.
+  - 어떤 경우에는 몇 일 뒤에 결제가 확실하게 취소되면 문제가 없을 때도 있다.
+- 이렇게 우리가 구현해야 할 것 중에서 'A하면 이어서 B하라' 는 내용을 담고 있는 요구사항은 실제로 'A하면 최대 언제까지 B하라' 인 경우가 많다.
+  - 즉, 후속 조치를 바로 할 필요 없이 일정 시간 안에만 처리하면 되는 경우가 적지 않다.
+  - 게다가, 'A하면 이어서 B하라'는 요구사항에서 B를 하는데 실패하면 일정 간격으로 재시도를 하거나 수동 처리를 해도 상관이 없는 경우가 있다.
+  - 앞서 이메일 인증 예가 이에 해당된다.
+  - 회원 가입 신청 시점에서 이메일 발송에 실패하더라도 사용자는 이메일 재전송 요청을 이용해서 수동으로 인증 이메일을 다시 받아볼 수 있다.
+- 'A하면 일정 시간 안에 B하라'는 요구사항에서 'A하면' 은 이벤트로 볼 수도 있다.
+  - '회원 가입 신청을 하면 인증 이메일을 보내라'는 요구사항에서 '회원 가입 신청을 하면'은 '회원 가입 신청함' 이벤트로 볼 수 있다.
+  - 따라서, '인증 이메일을 보내라' 기능은 '회원 가입 신청함' 이벤트를 처리하는 핸들러에서 보낼 수 있다.
+- 앞서 말했듯 'A하면 이어서 B하라' 는 요구사항 중에서 'A하면 최대 언제까지 B하라'로 바꿀 수 있는 요구사항은 이벤트를 비동기로 처리하는 방식으로 구현할 수 있다.
+  - 다시 말해서, A 이벤트가 발생하면 별도 스레드로 B를 수행하는 핸들러를 실행하는 방식으로 요구사항을 구현할 수 있는 것이다.
+- 이벤트를 비동기로 구현할 수 있는 방법은 매우 다양한데, 이 절에서는 다음의 네가지 방식으로 비동기 이벤트 처리를 구현하는 방법에 대해 살펴볼 것이다.
+  - 로컬 핸들러를 비동기로 실행하기
+  - 메시지 큐를 사용하기
+  - 이벤트 저장소와 이벤트 포워더 사용하기
+  - 이벤트 저장소와 이벤트 제공 API 사용하기
+- 네가지 방식은 각자 구현하는 방식도 다르고 그에 따른 장점과 단점이 있다.
+  - 각 방식에 대해 차례대로 살펴보자.
+
+### 로컬 핸들러의 비동기 실행 
+- 이벤트 핸들러를 비동기로 실행하는 방법은 이벤트 핸들러를 별도 스레드로 실행하는 것이다.
+  - 앞서 구현한 Events 클래스에 비동기로 핸들러를 실행하는 기능을 추가한 코드는 다음과 같다.
+  - 코드가 다소 길어 일부 코드를 생략했다. 
+  ```java
+  import java.util.concurrent.ExecutorService;
+  import java.util.concurrent.TimeUnit;
+
+  public class Events {
+    ...//handlers 필드와 publishing 필드 생략
+    private static ThreadLocal<List<EventHandler<?>>> asyncHandlers = new ThreadLocal<>(); // 비동기로 실행할 이벤트 핸들러 목록을 보관할 ThreadLocal 변수인 asyncHandlers를 생성한다.
+
+    private static ExecutorService executor; // 비동기로 이벤트 핸들러를 실행할 때 사용할 ExecutorService를 선언한다.
+
+    public static void init(ExecutorService executor) { // executor를 초기화한다.
+      Events.executor = executor;
+    }
+
+    public static void close() { // executor를 셧다운한다.
+      if(executor != null) {
+        executor.shutdown();
+        try {
+          executor.awaitTermination(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+
+        }
+      }
+    }
+
+    public static void raise(Object event) { 
+      if (publishing.get()) return;
+
+      try {
+        publishing.set(Boolean.TRUE);
+        /* 이벤트를 처리할 수 있는 핸들러를 비동기로 실행한다. */
+        List<EventHandler<?>> asyncEvtHandlers = asyncHandlers.get(); 
+        if(asyncEvtHandlers != null) {
+          for (EventHandler handler : asyncEvtHandlers) {
+            if (handler.canHandle(event)) {
+              executor.submit(() -> handler.handle(event));
+            }
+          }
+        }
+        /* 이벤트를 처리할 수 있는 핸들러를 비동기로 실행한다. */
+
+        List<EventHandler<?>> eventHandlers = handlers.get();
+        if(eventHandlers == null) return;
+        for (EventHandler handler : eventHandlers) {
+          if (handler.canHandle(event)) {
+            handler.handle(event);
+          }
+        }
+      } finally {
+        publishing.set(Boolean.FALSE);
+      }
+    }
+
+    public static void handle(EventHandler<?> handler) {
+      ... 생략 
+    }
+
+    public static void handleAsync(EventHandler<?> handler) { // 비동기로 처리할 이벤트 핸들러를 등록한다.
+      if(publishing.get()) return;
+
+      List<EventHandler<?>> eventHandlers = asyncHandlers.get();
+      if(eventHandlers == null) {
+        eventHandlers = new ArrayList<>();
+        asyncHandlers.set(eventHandlers);
+      }
+      eventHandlers.add(handler);
+    }
+
+    public static void reset() { // reset()을 수행할 때 asyncHandler에 보관된 값을 제거한다.
+      if (!publishing.get()) {
+        handlers.remove();
+        asyncHandlers.remove();
+      }
+    }
+
+  }
+  ``` 
+- 동기나 비동기로 실행할 이벤트 핸들러를 처리하는 방식은 거의 유사하다.
+  - 차이점이라면 비동기로 실행할 이벤트 핸들러는 executor.submit()을 이용해서 스레드 풀에 핸들러 실행 작업을 등록하는 반면에 동기로 실행할 이벤트 핸들러는 바로 실행한다는 점이다.
+- executor.submit()에 handler.handle()을 실행하는 람다식을 전달하고 있다.
+  - executor는 내부적으로 사용하는 스레드 풀을 이용해서 인자로 전달받은 람다식을 실행하므로 결과적으로 raise() 메서드를 실행하는 스레드가 아닌 다른 스레드를 이용해서 이벤트 핸들러를 비동기로 실행하게 된다.
+  ```java
+  executor.submit( () -> handler.handle(event) );
+  ``` 
+
+- 별도 스레드로 이벤트 핸들러를 사용한다는 것은 raise() 메서드와 관련된 트랜잭션 범위에 이벤트 핸들러 실행이 묶이지 않는다는 것을 의미한다.
+  - 다음 코드를 보자.
+  ```java
+  @Transactional
+  public void cancel(OrderNo orderNo) {
+    Events.handleAsync(
+      (OrderCanceledEvent evt) -> refundService.refund(evt.getOrderNumber()));
+    Order order = findOrder(orderNo);
+    order.cancel(); // Events.raise(new OrderCanceledEvent()) 실행 
+  }
+  ``` 
+
+- 이 코드에서 order.cancel() 메서드는 Events.raise()를 이용해서 이벤트를 발생시킨다.
+  - 여기서 cancel() 메서드를 실행하는 스레드와 Events.raise() 메서드를 실행하는 스레드는 동일 스레드에서 실행되므로 같은 트랜잭션 범위에 묶인다.
+  - 반면에 Events.handleAsync()로 등록한 이벤트 핸들러는 별도 스레드로 실행되므로 refundService.refund() 코드는 cancel()메서드와 관련된 트랜잭션 범위에 묶이지 않는다.
+  - 만약 refundService.refund()를 트랜잭션 범위에서 실행되도록 설정했다면 cancel() 메서드와 refundService.refund() 메서드는 서로 다른 트랜잭션 범위에서 실행된다.
+ 
+> 스프링의 트랜잭션 관리자는 보통 스레드를 이용해서 트랜잭션을 전파한다.
+> 물론, 스레드가 아닌 다른 방식을 이용해서 트랜잭션을 전파할 수 있지만 일반적으로 사용하는 트랜잭션 관리자는 스레드를 이용해서 트랜잭션을 전파한다.
+> 이런 이유로 다른 스레드에서 실행되는 두 메서드는 서로 다른 트랜잭션을 사용하게 된다.
+
+- 별도 스레드를 이용해서 이벤트 핸들러를 실행하면 이벤트 발생 코드와 같은 트랜잭션 범위에 묶을 수 없기 떄문에 한 트랜잭션으로 실행해야 하는 이벤트 핸들러는 비동기로 처리해서는 안 된다.
+- Events 클래스는 init() 메서드를 이용해서 이벤트 핸들러를 비동기로 실행할 때 사용할 ExecutorService를 전달받으므로 초기화 과정에서 init() 메서드를 실행해야 한다.
+  - 이를 위한 코드는 다음과 같이 작성할 수 있다.
+  ```java
+  package com.myshop.common.event;
+
+  @Component
+  public class AsyncEventsInitializer {
+
+    @PostConstruct
+    public void init() {
+      Events.init(Executors.newFixedThreadPool(10));
+    }
+
+    @PreDestroy
+    public void close() {
+      Events.close();
+    }
+  }
+  ```
+  - 위의 코드는 스프링에서 사용할 빈을 구현한 코드이다.
+
+
+### 메시징 시스템을 이용한 비동기 구현
+
+
 </details>
 
 
