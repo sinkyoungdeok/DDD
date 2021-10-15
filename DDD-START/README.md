@@ -5637,3 +5637,13 @@ public class OrderAdminController {
 > 이는 이벤트 중복 발생이나 중복 처리에 대한 부담을 줄여준다. 
 
 </details>
+
+# 11. CQRS
+
+<details> <summary> 1. 단일 모델의 단점 </summary>
+
+</details>
+
+<details> <summary> 2. CQRS </summary>
+
+</details>
