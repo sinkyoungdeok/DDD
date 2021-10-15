@@ -5239,6 +5239,355 @@ public class OrderAdminController {
 
 
 ### 메시징 시스템을 이용한 비동기 구현
+- 비동기로 이벤트를 처리해야 할 때 사용하는 또 다른 방법은 RabbitMQ와 같은 메시징 큐를 사용하는 것이다.
+  - 이벤트가 발생하면 이벤트 디스패처는 아래 그림과 같이 이벤트를 메시지 큐에 보낸다.
+  - 메시지 큐는 이벤트를 메시지 리스너에 전달하고, 메시지 리스너는 알맞은 이벤트 핸들러를 이용해서 이벤트를 처리한다.
+  - 이때 이벤트를 메시지 큐에 저장하는 과정과 메시지 큐에서 이벤트를 읽어와 처리하는 과정은 별도 스레드나 프로세스로 처리된다.
+   
+  ![image](https://user-images.githubusercontent.com/28394879/137421390-cb0aa2dd-349a-4366-8f43-ba3eb060bdfc.png)
+ 
+- 필요하다면 이벤트를 발생하는 도메인 기능과 메시지 큐에 이벤트를 저장하는 절차를 한 트랜잭션으로 묶어야 한다.
+  - 도메인 기능을 실행한 결과를 DB에 반영하고 이 과정에서 발생한 이벤트를 메시지 큐에 저장하는 것을 같은 트랜잭션 범위에서 실행하려면 글로벌 트랜잭션이 필요하다.
+- 글로벌 트랜잭션을 사용하면 안전하게 이벤트를 메시지 큐에 전달할 수 있는 장점이 있지만, 반대로 글로벌 트랜잭션으로 인해 전체 성능이 떨어지는 단점도 있다.
+
+- 많은 경우 메시지 큐를 사용하면 보통 이벤트를 발생하는 주체와 이벤트 핸들러가 별도 프로세스에서 동작한다.
+  - 이는 자바의 경우 이벤트 발생 JVM과 이벤트 처리 JVM이 다르다는 것을 의미한다.
+  - 물론, 한 JVM에서 이벤트 발생 주체와 이벤트 핸들러가 메시지 큐를 이용해서 이벤트를 주고 받을 수 있지만, 동일 JVM에서 비동기 처리를 위해 메시지 큐를 사용하는 것은 시스템을 복잡하게 만들 뿐이다.
+- RabbitMQ처럼 많이 사용하는 메시징 시스템은 글로벌 트랜잭션 지원과 함께 클러스터와 고가용성을 지원하기 떄문에 안정적으로 메시지를 전달할 수 있는 장점이 있다.
+  - 또한, 다양한 개발 언어와 통신 프로토콜을 지원하고 있다.
+  - 메시지를 전달하기 위해 많이 사용하는 것중에 Kafka도 있다.
+  - Kafka는 글로벌 트랜잭션을 지원하지 않지만 다른 메시징 시스템에 비해 높은 성능을 보여준다.
+
+### 이벤트 저장소를 이용한 비동기 처리
+- 비동기로 이벤트를 처리하기 위한 또 다른 방법은 이벤트를 일단 DB에 저장한 뒤에 별도 프로그램을 이용해서 이벤트 핸들러에 전달하는 것이다.
+  - 이 방식의 실행 흐름은 다음 그림과 같다.
+   
+  ![image](https://user-images.githubusercontent.com/28394879/137423421-418a77bc-91bf-4025-921a-993a354c7373.png) 
+
+- 이벤트가 발생하면 핸들러는 스토리지에 이벤트를 저장한다.
+  - 포워더는 주기적으로 이벤트 저장소에서 이벤트를 가져와 이벤트 핸들러를 실행한다.
+  - 포워더는 별도 스레드를 이용하기 때문에 이벤트 발행과 처리가 비동기로 처리된다.
+- 이 방식은 도메인의 상태와 이벤트 저장소로 동일한 DB를 사용한다.
+  - 즉, 도메인의 상태 변화와 이벤트 저장이 로컬 트랜잭션으로 처리된다.
+  - 이벤트를 물리적 저장소에 보관하기 때문에 핸들러가 이벤트 처리에 실패할 경우, 포워더는 다시 이벤트 저장소에서 이벤트를 읽어와 핸들러를 실행하면 된다.
+- 이벤트 저장소를 이용한 두 번째 방법은 아래그림과 같이 이벤트를 외부에 제공하는 API를 사용하는 것이다.
+  
+  ![image](https://user-images.githubusercontent.com/28394879/137425002-43bf1a48-7c6b-4754-90cf-183cf5e7e9ca.png)
+
+- API 방식과 포워더 방식의 차이점은 이벤트를 전달하는 방식에 있다.
+  - 포워더 방식에서는 포워더를 이용해서 이벤트를 외부에 전달하는 방식이라면, API 방식에서는 외부 핸들러가 API 서버를 통해 이벤트 목록을 가져오는 방식이다.
+  - 포워더 방식은 이벤트를 어디까지 처리했는지 추적하는 역할이 포워더에 있다면, API 방식에서는 이벤트 목록을 요구하는 외부 핸들러가 자신이 어디까지 이벤트를 처리했는지 기억해야 한다.
+
+
+### 이벤트 저장소 구현
+- 포워더 방식과 API 방식 모두 이벤트 저장소를 사용하므로 이벤트를 저장할 저장소가 필요하다. 
+  - 이벤트 저장소를 구현한 코드 구조는 다음 그림과 같다.
+
+  ![image](https://user-images.githubusercontent.com/28394879/137425743-2c486415-3e44-4ef0-b000-0d0914ba379e.png)
+
+  - EventEntry: 이벤트 저장소에 보관할 데이터이다. EventEntry는 이벤트를 식별하기 위한 id, 이벤트의 타입인 type, 직렬화한 데이터의 형식인 contentType, 이벤트 데이터 자체인 payload, 이벤트 시간인 timestamp를 갖는다.
+  - EventStore: 이벤트를 저장하고 조회한느 인터페이스를 제공한다.
+  - JdbcEventStore: JDBC를 이용한 EventStore 구현 클래스이다.
+  - EventApi: REST API를 이용해서 이벤트 목록을 제공하는 컨트롤러이다.
+  
+
+
+- EventEntry 클래스는 다음과 같다. 이벤트 데이터를 정의하고 있다.
+  ```java
+  public class EventEntry {
+    private Long id;
+    private String type;
+    private String contentType;
+    private String payload;
+    private long timestamp;
+  }
+
+  public EventEntry(String type, String contentType, String payload) {
+    this.type = type;
+    this.contentType = contentType;
+    this.payload = payload;
+    this.timestamp = System.currentTimeMillis();
+  }
+  
+  public Long getId() {
+    return id;
+  }
+
+  public String getType() {
+    return type;
+  }
+  
+  public String getContentType() {
+    return contentType;
+  }
+  
+  public String getPayload() {
+    return payload;
+  }
+
+  public long getTimestamp() {
+    return timestamp;
+  }
+  ``` 
+
+- EventStore는 이벤트객체를 직렬화해서 payload에 저장한다.
+  - 이때 JSON으로 직렬화 했다면 contentTypeㅡ이 값으로 'application/json'을 갖는다.
+  - EventStore 인터페이스는 다음과 같다.
+  ```java
+  public interface EventStore {
+    void save(Object event);
+    List<EventEntry> get(long offset, long limit);
+  }
+  ```  
+- 이벤트는 과거에 벌어진 사건이므로 데이터가 변경되지 않는다.
+  - 이런 이유로 EventStore 인터페이스는 새로운 이벤트를 추가하는 기능과 조회하는 기능만 제공하고 기존 이벤트 데이터를 수정하는 기능은 제공하지 않는다.
+  ```java
+  @Component
+  public class JdbcEventStore implements EventStore {
+    private ObjectMapper objectMapper;
+    private JdbcTemplate jdbcTemplate;
+
+    @Override
+    public void save(Object event) {
+      EventEntry entry = new EventEntry(event.getClass().getName(), "application/json", toJson(event));
+      jdbcTemplate.update(
+        "insert into evententry (type, content_type, payload, timestamp) values (?, ?, ?, ?)", ps -> {
+          ps.setString(1, entry.getType());
+          ps.setString(2, entry.getContentType());
+          ps.setString(3, entry.getPayload());
+          ps.setTimestamp(4, new Timestamp(entry.getTimestamp()));
+        });
+    }
+
+    private String toJson(Object event) {
+      try {
+        return objectMapper.writeValueAsString(event);
+      } catch (JsonProcessingException e) {
+        throw new PayloadConvertException(?e);
+      }
+    }
+
+    @Override
+    public List<EventEntry> get(long offset, long limit) {
+      return jdbcTemplate.query("select * from evententry order by id asc limit ?,?", ps -> {
+        ps.setLong(1, offset);
+        ps.setLong(2, limit);
+      },
+      (rs, rowNum) -> {
+        return new EventEntry(
+          rs.getLong("id"), rs.getString("type"), rs.getString("content_type"), rs.getString("payload"), rs.getTimestamp("timestamp").getTime());
+    
+      });
+    }
+
+    @Autowired
+    public void setJdbcTemplate(JdbcTemplate jdbcTemplate) {
+      this.jdbcTemplate = jdbcTemplate;
+    }
+
+    @Autowired
+    public void setObjectMapper(ObjectMapper objectMapper) {
+      this.objectMapper = objectMapper;
+    }
+  }
+  ``` 
+
+- 간단한 구현이므로 스프링이 제공하는 JdbcTemplate을 사용했다.
+  - save() 메서드는 EventEntry 객체를 생성할 때 파라미터로 전달받은 event 객체를 JSON 문자열로 변환해서 payload로 전달하고, contentType은 'application/json' 으로 설정했다.
+- 여기에서는 MySQL을 사용해서 예제를 구현했는데, evententry 테이블의 주요 키를 자동 증가(auto_increment) 칼럼으로 설정했다.
+  - 그래서, insert 쿼리를 실행할 때 테이블의 주요 키를 설정하지 않았다.
+- get()메서드는 MySQL의 limit을 이용해서 id순으로 정렬했을 때 offset파라미터로 지정한 이벤트부터 limit 개수만큼 데이터를 조회한다.
+- EventEntry를 저장할 evententry 테이블의 DDL은 다음과 같다.
+  ```
+  create table evententry {
+    id int not null AUTO_INCREMENT PRIMARY KEY,
+    `type` varchar(255),
+    `content_type` varchar(255),
+    payload MEDIUMTEXT,
+    `timestamp` datetime
+  } character set utf8;
+  ``` 
+
+### 이벤트 저장을 위한 이벤트 핸들러 구현 
+- 이벤트 저장소를 위한 기반이 되는 클래스는 모두 구현했다.
+  - 이제 남은 것은 발생한 이벤트를 이벤트 저장소에 추가하는 이벤트 핸들러를 구현하는 것이다.
+  - 이 핸들러는 다음과 같다.
+  ```java
+  @Component
+  public class EventStoreHandler implements EventHandler<Object> {
+    private EventStore eventStore;
+
+    @Override
+    public void handle(Object event) {
+      eventStore.save(event);
+    }
+
+    @Autowired
+    public void setEventStore(EventStore eventStore) {
+      this.eventStore = eventStore;
+    }
+  }
+  ``` 
+
+- EventStoreHandler의 handle() 메서드는 eventStore.save() 메서드를 이용해서 이벤트 객체를 저장한다.
+  - EventStoreHandler는 EventHandler(Object)를 상속받고 있으므로 canHandle() 메서드는 모든 객체에 대해 true를 리턴한다.
+  - 즉, 이벤트 타입에 상관없이 이벤트는 저장소에 보관된다.
+- EventStoreHandler를 이벤트 핸들러로 사용하려면 응용 서비스의 메서드마다 Events.handle()로 등록해야 한다.
+  ```java
+  public void changePassword(...) {
+    Events.handle(eventStoreHandler); // 모든 응용 서비스에 적용해야 함 
+    ...
+  }
+  ``` 
+- 모든 응용 서비스에 대해 이 코드를 추가하면 많은 중복이 발생하므로 중복을 제거하기 위해 AOP를 사용하면 좋다.
+  - 여기서 사용할 AOP 구현 코드는 다음과 같다.
+  ```java
+  @Aspect
+  @Order(1)
+  @Component
+  public class EventStoreHandlerAspect {
+    private EventStoreHandler eventStoreHandler;
+
+    @Before("execution(public * com.myshop..*Service.*(..))")
+    public void registerEventStoreHandler() throws Throwable {
+      Events.handle(eventStoreHandler);
+    }
+
+    @Autowired
+    public void setEventStoreHandler(EventStoreHandler eventStoreHandler) {
+      this.eventStoreHandler = eventStoreHandler;
+    }
+  }
+  ``` 
+- Before Aspect이므로 com.myshop의 하위 패키지에 속한 Service의 메서드를 실행하기 이전에 EventStoreHandler가 이벤트 핸들러로 등록되어 서비스를 실행하는 과정에서 발생한 이벤트가 EventStore에 저장된다.
+
+
+### REST API 구현
+- REST API는 단순하다.
+  - offset과 limit의 웹 요청 파라미터를 이용해서 EventStore#get을 실행하고 그 결과를 JSON으로 리턴하면 된다.
+  - 스프링 MVC의 컨트롤러를 이용해서 REST API를 구현한 코드는 다음과 같다.
+  ```java
+  @RestController
+  public class EventApi {
+    private EventStore eventStore;
+
+    @RequestMapping(value = "/api/events", method = RequestMethod.GET)
+    public List<EventEntry> list(
+      @RequestParam(name="offset", required = true) Long offset,
+      @RequestParam(name="limit", required = true) Long limit) { 
+      return eventStore.get(offset,limit);
+    }
+    
+    @Autowired
+    public void setEventStore(EventStore eventStore) {
+      this.eventStore = eventStore;
+    }
+  }
+  ``` 
+
+- EventApi가 처리하는 URL에 연결하면 JSON형식으로 EventEntry 목록을 구할 수 있다.
+- 이벤트를 수정하는 기능이 없으므로 REST API도 단순 조회 기능만 존재한다.
+- API를 사용하는 클라이언트는 일정 간격으로 다음 과정을 실행한다.
+  1. 가장 마지막에 처리한 데이터의 오프셋인 lastOffset을 구한다. 저장한 lastOffset이 없으면 0을 사용한다.
+  2. 마지막에 처리한 lastOffset을 offset으로 사용해서 API를 실행한다.
+  3. API 결과로 받은 데이터를 처리한다.
+  4. offset + 데이터 개수를 lastOffset으로 저장한다.
+
+- 마지막에 처리한 lastOffset을 저장하는 이유는 같은 이벤트를 중복해서 처리하지 않기 위함이다.
+  - API를 사용하는 과정을 그림으로 정리하면 다음과 같다.
+  
+  ![image](https://user-images.githubusercontent.com/28394879/137441899-8dd2fd15-effe-4220-b4ef-3e29411763e3.png) 
+
+   
+- 위의 그림에서는 클라이언트가 1분 주기로 최대 5개의 이벤트를 조회하는 상황을 정리한 것이다.
+  - 최초로 이벤트를 조회하는 1분 시점에서는 조회한 이벤트가 없으므로 offset이 0이다.
+  - 1분 시점에 5개의 이벤트를 조회했다고 해보자.
+  - 클라이언트가 읽어온 데이터가 5개이므로 2분 시점에 요청하는 offset은 5가 된다.
+- 2분 시점에 오프셋 5 이후로 저장된 이벤트가 3개밖에 없어서 API가 3개의 이벤트를 제공했다고 하자.
+  - 그러면 클라이언트는 직접 offset 값인 5에 조회한 이벤트 개수인 3을 더한 8을 3분 시점의 offset 값으로 사용한다.
+  - 3분 시점에 제공한 이벤트가 0개이면 클라이언트는 다음 요청 때 3분 시점과 동일한 offset을 사용한다.
+- 클라이언트 API를 이용해서 언제든지 원하는 이벤트를 가져올 수 있기 대문에 이벤트 처리에 실패하면 다시 실패한 이벤트부터 읽어와 이벤트를 재처리할 수 있다.
+  - API 서버에 장애가 발생한 경우에도 주기적으로 재시도를 해서 API 서버가 살아나면 이벤트를 처리할 수 있다.
+  
+
+### 포워더 구현
+- 포워더는 앞서 봤던 API 방식에서 클라이언트의 구현과 유사하다.
+  - 포워더는 일정 주기로 EventStore로부터 이벤트를 읽어와 이벤트 핸들러에 전달하면 된다.
+  - API방식에서 클라이언트와 마찬가지로 마지막으로 전달한 이벤트의 오프셋을 기억해 두었다가 다음 조회 시점에 마지막으로 처리한 오프셋부터 이벤트를 가져오면 된다.
+  - 포워더는 다음과 같이 구현해 볼 수 있다.
+  ```java
+  @Component
+  public class EventForwarder {
+    private static final int DEFAULT_LIMIT_SIZE = 100;
+    
+    private EventStore eventStore;
+    private OffsetStore offsetStore;
+    private EventSender eventSender;
+    private int limitSize = DEFAULT_LIMIT_SIZE;
+
+    @Scheduled(initialDelay = 1000L, fixedDelay = 1000L) 
+    public void getAndSend() {
+      long nextOffset = getNextOffset(); // 읽어올 이벤트의 다음 오프셋을 구한다.
+      List<EventEntry> events = eventStore.get(nextOffset, limitSize); // 이벤트 저장소에서 오프셋부터 limitSize만큼 이벤트를 구한다.
+      if(!events.isEmpty()) { // 구한 이벤트가 존재하는지 검사한다. 
+        int processedCount = sendEvent(events); // 구한 이벤트가 존재하면 sendEvent()를 이용해서 이벤트를 전송한다. sendEvent()는 처리한 이벤트 개수를 리턴한다. 
+        if (processedCount > 0) { // 처리한 이벤트 개수가 0보다 크면 다음에 읽어올 오프셋을 저장한다.
+          saveNextOffset(nextOffset + processedCount);
+        }
+      }
+    }
+
+    private long getNextOffset() {
+      return offsetStore.get();
+    }
+
+    private int sendEvent(List<EventEntry> events) {
+      int processedCount =0 ;
+      try {
+        for (EventEntry entry : events) {
+          eventSender.send(entry);
+          processedCount ++;
+        }
+      } catch(Exception ex) {
+        // 로깅 처리 
+      }
+      return processedCount;
+    }
+
+    private void saveNextOffset(long nextOffset) {
+      offsetStore.update(nextOffset);
+    }
+
+    ... // 각 필드에 대한 set 메서드 
+  }
+  ``` 
+
+- getAndSend() 메서드를 주기적으로 실행하기 위해 스프링의 @Scheduled 애노테이션을 사용했다.
+  - 스프링을 사용하지 않으면 별도 스케줄링 프레임워클르 이용해서 getAndSend() 메서드를 원하는 주기로 실행하면 된다.
+- getNextoffset() 메서드와 saveNextOffset() 메서드에서 사용한 OffsetStore 인터페이스는 다음의 두 메서드를 정의하고 있다.
+  ```java
+  public interface OffsetStore {
+    long get();
+    void update(long nextOffset);
+  }
+  ``` 
+- OffsetStore를 구현한 클래스는 오프셋 값을 DB 테이블에 저장하거나 로컬 파일에 보관해서 마지막 오프셋 값을 물리적 저장소에 보관하면 된다.
+
+
+- sendEvent() 메서드는 파라미터로 전달받은 이벤트를 eventSender.send()를 이용해서 차례대로 발송한다.
+  - 익셉션이 발생하면 이벤트 전송을 멈추고 전송에 성공한 이벤트 개수를 리턴한다.
+  - 전송에 성공한 이벤트 개수를 리턴하기 떄문에 저장하는 오프셋은 최종적으로 전송에 성공한 이벤트를 기준으로 다음 이벤트에 대한 오프셋이다.
+  - 따라서, 다음번에 getAndSend() 메서드를 실행하면 마지막으로 전송에 성공한 이벤트의 다음 이벤트부터 읽어와 전송을 시도하게 된다.
+- EventSender 인터페이스는 다음과 같이 단순하다.
+  ```java
+  public interface EventSender {
+    void send(EventEntry event);
+  }
+  ```  
+- 이 인터페이스를 구현한 클래스는 send() 메서드에서 외부 메시징 시스템에 이벤트를 전송하거나 원하는 핸들러에 이벤트를 전달하면 된다.
+  - 이벤트 처리 중에 익셉션이 발생하면 그대로 전파해서 다음 주기에 getAndSend() 메서드를 실핼할 때 재처리할 수 있도록한다.
+
+
 
 
 </details>
